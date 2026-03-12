@@ -11,24 +11,24 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Stripe webhook needs raw body — must be registered before express.json()
+// Stripe webhook needs raw body — MUST come before express.json()
 app.post(
   "/api/billing/webhook",
   express.raw({ type: "application/json" }),
-  async (req, res) => {
-    const { default: stripeRouter } = await import("./routes/stripe.js");
-    // Pass to the router's webhook handler
-    stripeRouter(req, res, () => {});
+  (req, res, next) => {
+    // Attach to the stripe router's webhook handler directly
+    req.url = "/webhook";
+    (stripeRoutes as any)(req, res, next);
   }
 );
 
-app.use(express.json({ limit: "1mb" }));
 app.use(cors({
   origin: process.env.WEB_URL || "http://localhost:3000",
   credentials: true,
 }));
+app.use(express.json({ limit: "1mb" }));
 
-// Health check
+// Health
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", version: "1.0.0", timestamp: new Date().toISOString() });
 });
@@ -41,313 +41,112 @@ app.get("/", (_req, res) => {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Uncover API</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --bg: #080808;
-      --surface: #0f0f0f;
-      --border: #1c1c1c;
-      --border-bright: #2a2a2a;
-      --text: #e8e8e8;
-      --muted: #555;
-      --dim: #333;
-      --accent: #e8ff47;
-      --accent-dim: rgba(232,255,71,0.08);
-      --green: #4ade80;
-      --red: #f87171;
-      --yellow: #fbbf24;
-      --mono: 'IBM Plex Mono', monospace;
-      --sans: 'Syne', sans-serif;
-    }
-    html { scroll-behavior: smooth; }
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: var(--sans);
-      min-height: 100vh;
-      line-height: 1.6;
-    }
-    .wrap { max-width: 860px; margin: 0 auto; padding: 0 32px; }
-
-    /* Nav */
-    nav {
-      border-bottom: 1px solid var(--border);
-      padding: 20px 0;
-    }
-    nav .inner { display: flex; align-items: center; justify-content: space-between; }
-    .wordmark { font-size: 15px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text); }
-    .nav-status { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
-    .pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse 2s ease-in-out infinite; }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-
-    /* Hero */
-    .hero { padding: 80px 0 64px; border-bottom: 1px solid var(--border); }
-    .version-tag {
-      display: inline-block;
-      font-family: var(--mono);
-      font-size: 10px;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--accent);
-      background: var(--accent-dim);
-      border: 1px solid rgba(232,255,71,0.2);
-      padding: 4px 10px;
-      border-radius: 2px;
-      margin-bottom: 28px;
-    }
-    h1 {
-      font-size: clamp(42px, 6vw, 68px);
-      font-weight: 800;
-      letter-spacing: -0.03em;
-      line-height: 1.0;
-      margin-bottom: 20px;
-      color: var(--text);
-    }
-    h1 span { color: var(--accent); }
-    .hero-sub {
-      font-size: 17px;
-      color: var(--muted);
-      max-width: 520px;
-      line-height: 1.7;
-      margin-bottom: 40px;
-      font-family: var(--mono);
-      font-weight: 400;
-    }
-    .hero-actions { display: flex; gap: 12px; flex-wrap: wrap; }
-    .btn {
-      font-family: var(--mono);
-      font-size: 12px;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-      padding: 12px 20px;
-      border-radius: 2px;
-      border: 1px solid;
-      cursor: pointer;
-      text-decoration: none;
-      display: inline-block;
-      transition: all 0.15s;
-    }
-    .btn-primary { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 600; }
-    .btn-primary:hover { background: #d4eb00; }
-    .btn-ghost { background: transparent; color: var(--muted); border-color: var(--border-bright); }
-    .btn-ghost:hover { color: var(--text); border-color: var(--dim); }
-
-    /* Sections */
-    section { padding: 56px 0; border-bottom: 1px solid var(--border); }
-    .section-label {
-      font-family: var(--mono);
-      font-size: 10px;
-      letter-spacing: 0.15em;
-      text-transform: uppercase;
-      color: var(--dim);
-      margin-bottom: 32px;
-    }
-
-    /* Status grid */
-    .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border: 1px solid var(--border); }
-    .status-row { background: var(--surface); padding: 14px 18px; display: flex; align-items: center; gap: 12px; font-family: var(--mono); font-size: 12px; }
-    .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-    .dot-green { background: var(--green); }
-    .dot-yellow { background: var(--yellow); }
-    .dot-red { background: var(--red); }
-    .status-name { color: var(--text); flex: 1; }
-    .status-badge { font-size: 10px; color: var(--muted); }
-
-    /* Endpoints */
-    .endpoints { display: grid; gap: 1px; background: var(--border); border: 1px solid var(--border); }
-    .endpoint { background: var(--surface); padding: 16px 20px; display: flex; align-items: center; gap: 16px; }
-    .method { font-family: var(--mono); font-size: 10px; font-weight: 500; padding: 3px 8px; border-radius: 2px; letter-spacing: 0.08em; min-width: 42px; text-align: center; }
-    .method-post { background: rgba(74,222,128,0.1); color: var(--green); border: 1px solid rgba(74,222,128,0.2); }
-    .method-get { background: rgba(96,165,250,0.1); color: #60a5fa; border: 1px solid rgba(96,165,250,0.2); }
-    .ep-path { font-family: var(--mono); font-size: 13px; color: var(--text); flex: 1; }
-    .ep-desc { font-family: var(--mono); font-size: 11px; color: var(--muted); }
-
-    /* Code */
-    .code-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 2px; overflow: hidden; }
-    .code-bar { padding: 10px 18px; background: #0a0a0a; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
-    .code-bar span { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.08em; }
-    pre { padding: 24px; font-family: var(--mono); font-size: 12.5px; line-height: 1.8; color: #8a9bb0; overflow-x: auto; }
-    .c-kw { color: #60a5fa; }
-    .c-str { color: var(--green); }
-    .c-num { color: var(--yellow); }
-    .c-cmt { color: #333; }
-    .c-key { color: #c4b5fd; }
-    .c-acc { color: var(--accent); }
-
-    /* Plans */
-    .plans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); }
-    .plan { background: var(--surface); padding: 28px 24px; }
-    .plan-name { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
-    .plan-price { font-size: 32px; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 4px; }
-    .plan-price sub { font-size: 14px; font-weight: 400; color: var(--muted); vertical-align: baseline; }
-    .plan-desc { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-bottom: 20px; line-height: 1.6; }
-    .plan-limit { font-family: var(--mono); font-size: 12px; color: var(--text); padding: 8px 0; border-top: 1px solid var(--border); }
-    .plan.featured { background: var(--accent-dim); border: 1px solid rgba(232,255,71,0.15); }
-    .plan.featured .plan-price { color: var(--accent); }
-
-    footer { padding: 40px 0; }
-    .footer-inner { display: flex; align-items: center; justify-content: space-between; }
-    .footer-copy { font-family: var(--mono); font-size: 11px; color: var(--dim); }
-
-    @media (max-width: 640px) {
-      .status-grid, .plans { grid-template-columns: 1fr; }
-      h1 { font-size: 38px; }
-      .hero { padding: 48px 0 40px; }
-    }
+    body { background: #080808; color: #e8e8e8; font-family: 'Syne', sans-serif; min-height: 100vh; }
+    .wrap { max-width: 820px; margin: 0 auto; padding: 0 32px; }
+    nav { border-bottom: 1px solid #1c1c1c; padding: 20px 0; display: flex; align-items: center; justify-content: space-between; }
+    .logo { font-weight: 800; font-size: 14px; letter-spacing: 0.1em; text-transform: uppercase; }
+    .live { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #555; display: flex; align-items: center; gap: 8px; }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+    .hero { padding: 72px 0 56px; border-bottom: 1px solid #1c1c1c; }
+    .tag { display: inline-block; font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: #e8ff47; background: rgba(232,255,71,0.07); border: 1px solid rgba(232,255,71,0.2); padding: 4px 10px; margin-bottom: 24px; }
+    h1 { font-size: clamp(40px, 6vw, 64px); font-weight: 800; letter-spacing: -0.03em; line-height: 1.0; margin-bottom: 16px; }
+    h1 span { color: #e8ff47; }
+    .sub { font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #555; line-height: 1.9; margin-bottom: 36px; }
+    .btn { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 12px 20px; border: none; cursor: pointer; text-decoration: none; display: inline-block; font-weight: 600; }
+    .btn-primary { background: #e8ff47; color: #000; }
+    section { padding: 48px 0; border-bottom: 1px solid #1c1c1c; }
+    .label { font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: #2a2a2a; margin-bottom: 20px; display: block; }
+    .packs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: #1c1c1c; border: 1px solid #1c1c1c; }
+    .pack { background: #0f0f0f; padding: 22px 20px; }
+    .pack-name { font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: #555; margin-bottom: 10px; }
+    .pack-price { font-size: 28px; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 4px; }
+    .pack-searches { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #555; }
+    .pack-per { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #333; margin-top: 6px; }
+    .pack.best { background: rgba(232,255,71,0.04); border: 1px solid rgba(232,255,71,0.15); }
+    .pack.best .pack-price { color: #e8ff47; }
+    .endpoints { display: grid; gap: 1px; background: #1c1c1c; border: 1px solid #1c1c1c; }
+    .ep { background: #0f0f0f; padding: 14px 20px; display: flex; align-items: center; gap: 16px; }
+    .m { font-family: 'IBM Plex Mono', monospace; font-size: 10px; padding: 2px 8px; min-width: 40px; text-align: center; letter-spacing: 0.06em; }
+    .m-post { background: rgba(74,222,128,0.08); color: #4ade80; border: 1px solid rgba(74,222,128,0.2); }
+    .m-get { background: rgba(96,165,250,0.08); color: #60a5fa; border: 1px solid rgba(96,165,250,0.2); }
+    .ep-path { font-family: 'IBM Plex Mono', monospace; font-size: 12px; flex: 1; }
+    .ep-desc { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #333; }
+    footer { padding: 36px 0; display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #2a2a2a; }
+    @media(max-width:640px){ .packs{grid-template-columns:1fr 1fr} }
   </style>
 </head>
 <body>
+<div class="wrap">
   <nav>
-    <div class="wrap">
-      <div class="inner">
-        <span class="wordmark">Uncover</span>
-        <span class="nav-status"><span class="pulse"></span>API operational &bull; v1.0.0</span>
-      </div>
-    </div>
+    <span class="logo">Uncover</span>
+    <span class="live"><span class="dot"></span>API operational &bull; v1.0.0</span>
   </nav>
-
-  <div class="wrap">
-    <div class="hero">
-      <div class="version-tag">v1.0.0 &mdash; Production</div>
-      <h1>Surface real<br>problems from<br><span>social data.</span></h1>
-      <p class="hero-sub">
-        Query Reddit, X, and HackerNews.<br>
-        Get structured pain points, trends, and AI analysis back.
-      </p>
-      <div class="hero-actions">
-        <a href="/api/auth/signup" class="btn btn-primary">Get API Key</a>
-        <a href="#endpoints" class="btn btn-ghost">View Endpoints</a>
+  <div class="hero">
+    <div class="tag">Pay as you go</div>
+    <h1>Surface real problems<br>from <span>social data.</span></h1>
+    <p class="sub">Query Reddit, X, and HackerNews.<br>Buy searches when you need them. No subscription.</p>
+    <a href="/api/auth/signup" class="btn btn-primary">Get API Key</a>
+  </div>
+  <section>
+    <span class="label">Credit Packs — buy once, use anytime</span>
+    <div class="packs">
+      <div class="pack">
+        <div class="pack-name">Starter</div>
+        <div class="pack-price">$5</div>
+        <div class="pack-searches">50 searches</div>
+        <div class="pack-per">$0.10 / search</div>
+      </div>
+      <div class="pack">
+        <div class="pack-name">Growth</div>
+        <div class="pack-price">$15</div>
+        <div class="pack-searches">200 searches</div>
+        <div class="pack-per">$0.075 / search</div>
+      </div>
+      <div class="pack best">
+        <div class="pack-name">Pro</div>
+        <div class="pack-price">$29</div>
+        <div class="pack-searches">500 searches</div>
+        <div class="pack-per">$0.058 / search</div>
+      </div>
+      <div class="pack">
+        <div class="pack-name">Scale</div>
+        <div class="pack-price">$79</div>
+        <div class="pack-searches">2,000 searches</div>
+        <div class="pack-per">$0.040 / search</div>
       </div>
     </div>
-
-    <section>
-      <div class="section-label">System Status</div>
-      <div class="status-grid">
-        <div class="status-row"><span class="dot dot-green"></span><span class="status-name">Auth &amp; API keys</span><span class="status-badge">Operational</span></div>
-        <div class="status-row"><span class="dot dot-green"></span><span class="status-name">Database</span><span class="status-badge">Operational</span></div>
-        <div class="status-row"><span class="dot dot-green"></span><span class="status-name">Reddit scraping</span><span class="status-badge">Operational</span></div>
-        <div class="status-row"><span class="dot dot-yellow"></span><span class="status-name">X / Twitter</span><span class="status-badge">Via Nitter</span></div>
-        <div class="status-row"><span class="dot dot-green"></span><span class="status-name">HackerNews</span><span class="status-badge">Operational</span></div>
-        <div class="status-row"><span class="dot dot-green"></span><span class="status-name">Stripe billing</span><span class="status-badge">Operational</span></div>
-        <div class="status-row"><span class="dot dot-green"></span><span class="status-name">AI analysis</span><span class="status-badge">Operational</span></div>
-        <div class="status-row"><span class="dot dot-green"></span><span class="status-name">Robots.txt compliance</span><span class="status-badge">Enforced</span></div>
-      </div>
-    </section>
-
-    <section id="endpoints">
-      <div class="section-label">Endpoints</div>
-      <div class="endpoints">
-        <div class="endpoint"><span class="method method-post">POST</span><span class="ep-path">/api/auth/signup</span><span class="ep-desc">Create account &amp; get API key</span></div>
-        <div class="endpoint"><span class="method method-post">POST</span><span class="ep-path">/api/auth/signin</span><span class="ep-desc">Sign in, retrieve keys</span></div>
-        <div class="endpoint"><span class="method method-post">POST</span><span class="ep-path">/api/search</span><span class="ep-desc">Submit search — Bearer token required</span></div>
-        <div class="endpoint"><span class="method method-get">GET</span><span class="ep-path">/api/search/:id</span><span class="ep-desc">Retrieve previous results</span></div>
-        <div class="endpoint"><span class="method method-get">GET</span><span class="ep-path">/api/billing/status</span><span class="ep-desc">Current plan &amp; usage</span></div>
-        <div class="endpoint"><span class="method method-post">POST</span><span class="ep-path">/api/billing/checkout</span><span class="ep-desc">Create Stripe checkout session</span></div>
-        <div class="endpoint"><span class="method method-post">POST</span><span class="ep-path">/api/billing/portal</span><span class="ep-desc">Customer billing portal</span></div>
-        <div class="endpoint"><span class="method method-get">GET</span><span class="ep-path">/health</span><span class="ep-desc">Health check</span></div>
-      </div>
-    </section>
-
-    <section>
-      <div class="section-label">Quick Start</div>
-      <div class="code-wrap">
-        <div class="code-bar"><span>bash &mdash; uncover CLI</span></div>
-        <pre><span class="c-cmt"># Install the CLI</span>
-<span class="c-acc">npm install -g @uncover/cli</span>
-
-<span class="c-cmt"># Authenticate</span>
-<span class="c-acc">uncover login</span>
-
-<span class="c-cmt"># Run a search</span>
-<span class="c-acc">uncover scrape "password manager frustrations" --sources reddit,hackernews</span>
-
-<span class="c-cmt"># Exclude noise</span>
-<span class="c-acc">uncover scrape "CRM software problems" \
-  --exclude-keywords spam,ad,promoted \
-  --min-upvotes 10 \
-  --max-age 720</span>
-
-<span class="c-cmt"># Check usage</span>
-<span class="c-acc">uncover status</span></pre>
-      </div>
-    </section>
-
-    <section>
-      <div class="section-label">API Example</div>
-      <div class="code-wrap">
-        <div class="code-bar"><span>typescript</span></div>
-        <pre><span class="c-cmt">// Search with exclusion filters</span>
-<span class="c-kw">const</span> res = <span class="c-kw">await</span> fetch(<span class="c-str">'/api/search'</span>, {
-  method: <span class="c-str">'POST'</span>,
-  headers: { Authorization: <span class="c-str">\`Bearer \${apiKey}\`</span> },
-  body: JSON.stringify({
-    query: <span class="c-str">'password manager frustrations'</span>,
-    sources: [<span class="c-str">'reddit'</span>, <span class="c-str">'hackernews'</span>],
-    limit: <span class="c-num">20</span>,
-    options: {
-      excludeSubreddits: [<span class="c-str">'AskReddit'</span>, <span class="c-str">'memes'</span>],
-      excludeKeywords: [<span class="c-str">'sponsored'</span>, <span class="c-str">'ad'</span>],
-      minUpvotes: <span class="c-num">5</span>,
-      maxAgeHours: <span class="c-num">720</span>  <span class="c-cmt">// last 30 days</span>
-    }
-  })
-});
-
-<span class="c-kw">const</span> { problems, summary, trends } = <span class="c-kw">await</span> res.json();
-<span class="c-cmt">// problems: [{ text, frequency, sentiment }]</span>
-<span class="c-cmt">// trends:   ["pricing", "mobile UX", "export"]</span>
-<span class="c-cmt">// summary:  "Most users struggle with..."</span></pre>
-      </div>
-    </section>
-
-    <section>
-      <div class="section-label">Pricing</div>
-      <div class="plans">
-        <div class="plan">
-          <div class="plan-name">Free</div>
-          <div class="plan-price">$0</div>
-          <div class="plan-desc">For exploration and prototyping.</div>
-          <div class="plan-limit">10 searches / month</div>
-        </div>
-        <div class="plan featured">
-          <div class="plan-name">Pro</div>
-          <div class="plan-price">$29<sub>/mo</sub></div>
-          <div class="plan-desc">For teams building products.</div>
-          <div class="plan-limit">500 searches / month</div>
-        </div>
-        <div class="plan">
-          <div class="plan-name">Enterprise</div>
-          <div class="plan-price">$199<sub>/mo</sub></div>
-          <div class="plan-desc">For high-volume research.</div>
-          <div class="plan-limit">10,000 searches / month</div>
-        </div>
-      </div>
-    </section>
-
-    <footer>
-      <div class="footer-inner">
-        <span class="footer-copy">Uncover &mdash; v1.0.0</span>
-        <span class="footer-copy">Built with Node.js + Prisma</span>
-      </div>
-    </footer>
-  </div>
+  </section>
+  <section>
+    <span class="label">Endpoints</span>
+    <div class="endpoints">
+      <div class="ep"><span class="m m-post">POST</span><span class="ep-path">/api/auth/signup</span><span class="ep-desc">Create account &amp; get API key</span></div>
+      <div class="ep"><span class="m m-post">POST</span><span class="ep-path">/api/search</span><span class="ep-desc">Run a search — deducts 1 credit</span></div>
+      <div class="ep"><span class="m m-get">GET</span><span class="ep-path">/api/search/:id</span><span class="ep-desc">Get results</span></div>
+      <div class="ep"><span class="m m-get">GET</span><span class="ep-path">/api/billing/status</span><span class="ep-desc">Credit balance &amp; history</span></div>
+      <div class="ep"><span class="m m-post">POST</span><span class="ep-path">/api/billing/checkout</span><span class="ep-desc">Buy a credit pack via Stripe</span></div>
+    </div>
+  </section>
+  <footer>
+    <span>Uncover &mdash; v1.0.0</span>
+    <span>No subscriptions. Credits never expire.</span>
+  </footer>
+</div>
 </body>
 </html>`);
 });
 
-// Public routes
+// Routes
+// Billing: /checkout (PAYG), /subscribe (subscription), /portal, /status, /webhook
 app.use("/api/auth", authRoutes);
 app.use("/api/billing", stripeRoutes);
-
-// Protected routes
 app.use("/api/search", apiKeyAuth, searchRoutes);
 
-// 404
 app.use((_req, res) => res.status(404).json({ error: "Not found" }));
 
 app.listen(PORT, () => {
-  console.log(`Uncover API listening on port ${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
+  console.log(`Uncover API on port ${PORT} — ${process.env.NODE_ENV || "development"}`);
 });

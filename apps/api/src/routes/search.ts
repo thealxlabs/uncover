@@ -7,7 +7,7 @@ import { analyzeProblems } from "../services/analyzer.js";
 
 const router = Router();
 
-const COST_PER_REQUEST = 0.05; // $0.05 per search
+const COST_PER_SEARCH_CENTS = 5; // $0.05
 
 const SearchRequestSchema = z.object({
   query: z.string().min(1).max(200),
@@ -21,6 +21,7 @@ const SearchRequestSchema = z.object({
   }).optional(),
 });
 
+// POST /api/search
 router.post("/", async (req: AuthenticatedRequest, res: Response) => {
   try {
     if (!req.userId) return res.status(401).json({ error: "Unauthorized" });
@@ -32,15 +33,16 @@ router.post("/", async (req: AuthenticatedRequest, res: Response) => {
       return res.status(400).json({ error: "Invalid request parameters", details: error });
     }
 
+    // Check credits
     const billing = await prisma.billing.findUnique({ where: { userId: req.userId } });
     if (!billing) return res.status(500).json({ error: "Billing info not found" });
 
-    if (billing.monthlyUsage >= billing.monthlyLimit) {
-      return res.status(429).json({
-        error: "Monthly request limit exceeded",
-        limit: billing.monthlyLimit,
-        used: billing.monthlyUsage,
-        upgradeUrl: "/api/billing/checkout",
+    if (billing.credits < 1) {
+      return res.status(402).json({
+        error: "Insufficient credits",
+        credits: billing.credits,
+        message: "Purchase a credit pack to continue searching.",
+        buyUrl: "/api/billing/checkout",
       });
     }
 
@@ -83,15 +85,31 @@ router.post("/", async (req: AuthenticatedRequest, res: Response) => {
         },
       });
 
-      await prisma.request.update({
-        where: { id: request.id },
-        data: { status: "completed", cost: COST_PER_REQUEST },
-      });
+      // Deduct 1 credit atomically
+      await prisma.$transaction([
+        prisma.request.update({
+          where: { id: request.id },
+          data: { status: "completed", cost: COST_PER_SEARCH_CENTS / 100 },
+        }),
+        prisma.billing.update({
+          where: { userId: req.userId },
+          data: {
+            credits: { decrement: 1 },
+            monthlyUsage: { increment: 1 },
+          },
+        }),
+        prisma.creditTransaction.create({
+          data: {
+            userId: req.userId,
+            type: "spend",
+            credits: -1,
+            amountCents: 0,
+            description: `Search: "${searchReq.query.slice(0, 60)}"`,
+          },
+        }),
+      ]);
 
-      await prisma.billing.update({
-        where: { userId: req.userId },
-        data: { monthlyUsage: { increment: 1 } },
-      });
+      const updatedBilling = await prisma.billing.findUnique({ where: { userId: req.userId } });
 
       return res.status(200).json({
         requestId: request.id,
@@ -100,8 +118,10 @@ router.post("/", async (req: AuthenticatedRequest, res: Response) => {
         sources: searchReq.sources,
         postsAnalyzed: posts.length,
         ...analysis,
-        cost: COST_PER_REQUEST,
-        usage: { used: billing.monthlyUsage + 1, limit: billing.monthlyLimit },
+        cost: COST_PER_SEARCH_CENTS / 100,
+        credits: {
+          remaining: updatedBilling?.credits ?? 0,
+        },
       });
     } catch (error) {
       await prisma.request.update({ where: { id: request.id }, data: { status: "failed" } });
@@ -114,9 +134,22 @@ router.post("/", async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
+// GET /api/search/:requestId
 router.get("/:requestId", async (req: AuthenticatedRequest, res: Response) => {
   try {
     if (!req.userId) return res.status(401).json({ error: "Unauthorized" });
+
+    // Handle "history" as a special sub-path before treating as requestId
+    if (req.params.requestId === "history") {
+      const limit = Math.min(parseInt((req.query.limit as string) || "10", 10), 50);
+      const requests = await prisma.request.findMany({
+        where: { userId: req.userId },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        select: { id: true, query: true, sources: true, status: true, cost: true, createdAt: true },
+      });
+      return res.json({ requests: requests.map(r => ({ ...r, sources: JSON.parse(r.sources) })) });
+    }
 
     const request = await prisma.request.findUnique({
       where: { id: req.params.requestId },
@@ -144,24 +177,5 @@ router.get("/:requestId", async (req: AuthenticatedRequest, res: Response) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
-
-
-// GET /api/search/history — list recent searches
-router.get("/history", async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    if (!req.userId) return res.status(401).json({ error: "Unauthorized" });
-    const limit = Math.min(parseInt((req.query.limit as string) || "10", 10), 50);
-    const requests = await prisma.request.findMany({
-      where: { userId: req.userId },
-      orderBy: { createdAt: "desc" },
-      take: limit,
-      select: { id: true, query: true, sources: true, status: true, cost: true, createdAt: true },
-    });
-    return res.json({ requests: requests.map(r => ({ ...r, sources: JSON.parse(r.sources) })) });
-  } catch (error) {
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
 
 export default router;

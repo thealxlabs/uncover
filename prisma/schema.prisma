@@ -15,9 +15,10 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  apiKeys  ApiKey[]
-  requests Request[]
-  billing  Billing?
+  apiKeys      ApiKey[]
+  requests     Request[]
+  billing      Billing?
+  transactions CreditTransaction[]
 }
 
 model ApiKey {
@@ -26,7 +27,6 @@ model ApiKey {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   key       String    @unique
   name      String
-  rateLimit Int       @default(100)
   createdAt DateTime  @default(now())
   lastUsed  DateTime?
   updatedAt DateTime  @updatedAt
@@ -72,13 +72,41 @@ model Billing {
   userId String @unique
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  stripeId           String?
-  stripeSubId        String?
-  plan               String  @default("free")
-  monthlyUsage       Int     @default(0)
-  monthlyLimit       Int     @default(10)
-  usageResetAt       DateTime?
+  stripeId        String?   // Stripe customer ID
+  stripeSubId     String?   // Active subscription ID (null if PAYG-only)
+
+  // Plan: "free" | "payg" | "growth" | "pro" | "enterprise"
+  plan            String @default("free")
+
+  // Credits pool — shared between PAYG top-ups and subscription allowance
+  credits         Int    @default(0)
+  totalSpent      Float  @default(0)
+
+  // Subscription tracking (for sub plans only)
+  subCreditsPerCycle  Int?      // credits granted per billing cycle
+  subResetAt          DateTime? // when the next cycle resets credits
+
+  // Counters
+  totalSearches   Int @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model CreditTransaction {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // "purchase" | "subscription_grant" | "spend" | "refund" | "subscription_reset"
+  type        String
+  credits     Int     // positive = added, negative = deducted
+  amountCents Int     @default(0)
+  description String
+  stripeId    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
 }
