@@ -1,27 +1,25 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Uncover - Find Real Problems from Social Media",
-  description: "Search Reddit and Twitter to discover what problems people face",
+  title: "Uncover — Surface Real Problems from Social Data",
+  description: "Query Reddit, X, and HackerNews. Get structured pain points, trends, and AI analysis.",
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body style={{ fontFamily: "system-ui, -apple-system, sans-serif" }}>
-        <nav
-          style={{
-            padding: "1rem 2rem",
-            borderBottom: "1px solid #eee",
-            marginBottom: "2rem",
-          }}
-        >
-          <h1>Uncover</h1>
-        </nav>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+      </head>
+      <body style={{
+        margin: 0,
+        padding: 0,
+        background: "#080808",
+        color: "#e8e8e8",
+        fontFamily: "'Syne', sans-serif",
+        minHeight: "100vh",
+      }}>
         {children}
       </body>
     </html>

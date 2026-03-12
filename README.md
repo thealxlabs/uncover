@@ -1,175 +1,127 @@
 # Uncover
 
-A SaaS API platform that discovers real user problems from Reddit and Twitter using Claude AI analysis.
+Surface real problems from social data. Query Reddit, X, and HackerNews — get structured pain points, trends, and AI analysis back.
 
-## Features
+## What it does
 
-- 🔍 Search Reddit and Twitter for real problems people mention
-- 🤖 AI-powered analysis using Claude to identify common pain points
-- 📊 Get structured insights: problems, trends, and summaries
-- 🔌 REST API with per-request pricing
-- 📦 NPM SDK for easy integration
-- 🌐 Web dashboard for testing and management
+- Real scraping of Reddit (JSON API), Twitter/X (via Nitter), and HackerNews (Algolia API)
+- Respects `robots.txt` and crawl delays on all sources
+- Configurable exclusion filters: subreddits, keywords, min upvotes, age
+- AI analysis to extract problems, frequency, and sentiment
+- Per-request billing via Stripe
+- REST API + NPM SDK + CLI (`uncover` commands)
 
 ## Project Structure
 
 ```
 uncover/
 ├── apps/
-│   ├── api/        # Node.js/Express backend API
-│   ├── web/        # Next.js dashboard
-│   └── docs/       # Documentation (coming soon)
+│   ├── api/        # Express API (port 3001)
+│   └── web/        # Next.js dashboard (port 3000)
 ├── packages/
-│   ├── sdk/        # @uncover/sdk NPM package
-│   └── db/         # Shared Prisma setup
+│   ├── cli/        # @uncover/cli — uncover commands
+│   └── sdk/        # @uncover/sdk — NPM package
 └── prisma/         # Database schema
 ```
 
 ## Quick Start
 
-### Prerequisites
-
-- Node.js 18+
-- PostgreSQL 14+
-- Redis (for job queue - Phase 2)
-- Anthropic API key
-
-### 1. Setup Environment
-
 ```bash
-# Clone and install dependencies
-git clone <repo>
+# 1. Clone and install
+git clone https://github.com/thealxlabs/uncover
 cd uncover
 npm install
 
-# Create .env file
+# 2. Configure environment
 cp .env.example .env
+# Edit .env with your keys
 
-# Update .env with your credentials:
-# - DATABASE_URL: PostgreSQL connection string
-# - ANTHROPIC_API_KEY: Your Claude API key
+# 3. Set up database
+cd apps/api && npx prisma migrate dev --name init
+
+# 4. Start servers
+cd ../.. && npm run dev:all
 ```
 
-### 2. Setup Database
+## CLI
 
 ```bash
-# Initialize Prisma
-cd apps/api
-npx prisma migrate dev --name init
+npm install -g @uncover/cli
 
-# This creates tables and seeds with demo data
+# Authenticate
+uncover login
+uncover login --key sk_live_...
+
+# Search
+uncover scrape "password manager frustrations"
+uncover scrape "CRM problems" --sources reddit,hackernews --limit 30
+
+# Filtering
+uncover scrape "project management" \
+  --exclude-subreddits AskReddit,memes \
+  --exclude-keywords sponsored,ad \
+  --min-upvotes 10 \
+  --max-age 720
+
+# Account
+uncover status
+uncover keys
+uncover history
+uncover logout
 ```
 
-### 3. Start Development Servers
-
-```bash
-# From root directory, start all services
-npm run dev
-
-# Or start individually:
-# API: cd apps/api && npm run dev (port 3001)
-# Web: cd apps/web && npm run dev (port 3000)
-```
-
-### 4. Test the API
+## API
 
 ```bash
 # Sign up
 curl -X POST http://localhost:3001/api/auth/signup \
   -H "Content-Type: application/json" \
-  -d '{
-    "email": "test@example.com",
-    "password": "password123",
-    "name": "Test User"
-  }'
+  -d '{"email":"you@example.com","password":"password123"}'
 
-# You'll get back an API key like: sk_live_xxxxx
+# Returns: { user, apiKey: { key: "sk_live_..." } }
 
-# Search
+# Search with filters
 curl -X POST http://localhost:3001/api/search \
-  -H "Authorization: Bearer sk_live_xxxxx" \
+  -H "Authorization: Bearer sk_live_..." \
   -H "Content-Type: application/json" \
   -d '{
     "query": "password manager frustrations",
-    "sources": ["reddit"],
-    "limit": 20
+    "sources": ["reddit", "hackernews"],
+    "limit": 20,
+    "options": {
+      "excludeSubreddits": ["memes"],
+      "excludeKeywords": ["sponsored"],
+      "minUpvotes": 5,
+      "maxAgeHours": 720
+    }
   }'
+
+# Billing
+curl http://localhost:3001/api/billing/status \
+  -H "Authorization: Bearer sk_live_..."
+
+curl -X POST http://localhost:3001/api/billing/checkout \
+  -H "Authorization: Bearer sk_live_..." \
+  -d '{"plan":"pro"}'
 ```
 
-## Using the NPM SDK
+## Stripe Setup
 
-```bash
-npm install @uncover/sdk
-```
+1. Create products in your Stripe dashboard for Pro ($29/mo) and Enterprise ($199/mo)
+2. Copy the Price IDs into `.env`
+3. Set up a webhook endpoint pointing to `/api/billing/webhook`
+4. Copy the webhook secret into `STRIPE_WEBHOOK_SECRET`
 
-```typescript
-import { Uncover } from "@uncover/sdk";
-
-const uncover = new Uncover("sk_live_xxxxx");
-
-// Search
-const results = await uncover.search({
-  query: "project management tools problems",
-  sources: ["reddit"],
-  limit: 20,
-});
-
-console.log(results.problems);
-console.log(results.summary);
-console.log(results.trends);
-
-// Or wait for async completion
-const completed = await uncover.waitForSearch(results.requestId);
-```
-
-## API Endpoints
-
-### Authentication
-
-- `POST /api/auth/signup` - Register new user
-- `POST /api/auth/signin` - Sign in and get API keys
-
-### Search (requires API key)
-
-- `POST /api/search` - Submit a search request
-- `GET /api/search/:requestId` - Get search status/results
-
-## Development Roadmap
-
-### Phase 1: MVP ✅ (Current)
-- [x] Database schema
-- [x] Express API backend
-- [x] Basic search endpoint
-- [x] Claude integration
-- [x] Next.js web dashboard
-- [x] NPM SDK package
-
-### Phase 2: Production Ready
-- [ ] Twitter/X scraping
-- [ ] Rate limiting & quotas
-- [ ] Redis job queue
-- [ ] Stripe payments
-- [ ] API documentation
-
-### Phase 3: Enhanced Features
-- [ ] Webhook support
-- [ ] Advanced filtering
-- [ ] More sources (HN, ProductHunt)
-- [ ] Usage analytics
-
-## Architecture
-
-- **API**: Node.js + Express + TypeScript
-- **Web**: Next.js + React
-- **Database**: PostgreSQL + Prisma
-- **Job Queue**: Bull + Redis (Phase 2)
-- **AI**: Claude API (Haiku model)
-- **Auth**: API keys + JWT (Web)
+Events handled: `checkout.session.completed`, `customer.subscription.deleted`, `invoice.payment_failed`
 
 ## Environment Variables
 
-See `.env.example` for all available options.
+See `.env.example` for all options.
 
-## License
+## Plans
 
-MIT
+| Plan       | Searches/mo | Price  |
+|------------|------------|--------|
+| Free       | 10         | $0     |
+| Pro        | 500        | $29/mo |
+| Enterprise | 10,000     | $199/mo|

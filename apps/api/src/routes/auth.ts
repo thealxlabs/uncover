@@ -135,4 +135,51 @@ router.post("/signin", async (req: Request, res: Response) => {
   }
 });
 
+
+// GET /api/auth/keys — list user's API keys (requires API key auth)
+import { apiKeyAuth, generateApiKey, hashKey } from "../middleware/auth.js";
+import type { AuthenticatedRequest } from "../middleware/auth.js";
+
+router.get("/keys", apiKeyAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const apiKeys = await prisma.apiKey.findMany({
+      where: { userId: req.userId! },
+      select: { id: true, name: true, createdAt: true, lastUsed: true },
+    });
+    return res.json({ apiKeys });
+  } catch (error) {
+    console.error("Keys error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /api/auth/keys — create a new API key
+router.post("/keys", apiKeyAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { name } = req.body as { name?: string };
+    const rawKey = generateApiKey();
+    const hashedKey = hashKey(rawKey);
+    const apiKey = await prisma.apiKey.create({
+      data: { userId: req.userId!, key: hashedKey, name: name || "New Key" },
+    });
+    return res.status(201).json({ id: apiKey.id, key: rawKey, name: apiKey.name });
+  } catch (error) {
+    console.error("Create key error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// DELETE /api/auth/keys/:id — revoke a key
+router.delete("/keys/:id", apiKeyAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const key = await prisma.apiKey.findUnique({ where: { id: req.params.id } });
+    if (!key || key.userId !== req.userId) return res.status(404).json({ error: "Key not found" });
+    await prisma.apiKey.delete({ where: { id: req.params.id } });
+    return res.json({ deleted: true });
+  } catch (error) {
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+
 export default router;

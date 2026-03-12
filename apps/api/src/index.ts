@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import searchRoutes from "./routes/search.js";
 import authRoutes from "./routes/auth.js";
+import stripeRoutes from "./routes/stripe.js";
 import { apiKeyAuth } from "./middleware/auth.js";
 
 dotenv.config();
@@ -10,9 +11,27 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware
-app.use(express.json());
-app.use(cors());
+// Stripe webhook needs raw body — must be registered before express.json()
+app.post(
+  "/api/billing/webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    const { default: stripeRouter } = await import("./routes/stripe.js");
+    // Pass to the router's webhook handler
+    stripeRouter(req, res, () => {});
+  }
+);
+
+app.use(express.json({ limit: "1mb" }));
+app.use(cors({
+  origin: process.env.WEB_URL || "http://localhost:3000",
+  credentials: true,
+}));
+
+// Health check
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok", version: "1.0.0", timestamp: new Date().toISOString() });
+});
 
 // Homepage
 app.get("/", (_req, res) => {
@@ -22,157 +41,313 @@ app.get("/", (_req, res) => {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Uncover API</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0a; color: #e5e5e5; min-height: 100vh; }
-    .hero { padding: 80px 40px 60px; max-width: 900px; margin: 0 auto; }
-    .badge { display: inline-block; background: #1a1a1a; border: 1px solid #333; color: #888; font-size: 12px; padding: 4px 12px; border-radius: 20px; margin-bottom: 24px; }
-    h1 { font-size: 52px; font-weight: 700; letter-spacing: -1.5px; margin-bottom: 16px; background: linear-gradient(135deg, #fff 0%, #888 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .subtitle { font-size: 18px; color: #666; line-height: 1.6; margin-bottom: 48px; max-width: 560px; }
-    .section-title { font-size: 11px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: #444; margin-bottom: 14px; }
-    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 56px; }
-    .card { background: #111; border: 1px solid #222; border-radius: 12px; padding: 22px 24px; }
-    .card-icon { font-size: 22px; margin-bottom: 12px; }
-    .card h3 { font-size: 15px; font-weight: 600; margin-bottom: 6px; color: #e5e5e5; }
-    .card p { font-size: 13px; color: #555; line-height: 1.6; }
-    .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 56px; }
-    .status-item { background: #111; border: 1px solid #222; border-radius: 10px; padding: 14px 18px; display: flex; align-items: center; gap: 12px; font-size: 13px; }
-    .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-    .dot.green { background: #4ade80; }
-    .dot.yellow { background: #facc15; }
-    .dot.red { background: #f87171; }
-    .status-label { color: #666; font-size: 11px; margin-left: auto; }
-    .endpoints { display: grid; gap: 10px; margin-bottom: 56px; }
-    .endpoint { background: #111; border: 1px solid #222; border-radius: 10px; padding: 18px 22px; display: flex; align-items: center; gap: 16px; }
-    .method { font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px; min-width: 48px; text-align: center; letter-spacing: 0.5px; }
-    .method.post { background: #1a2e1a; color: #4ade80; border: 1px solid #2d4a2d; }
-    .method.get  { background: #1a2335; color: #60a5fa; border: 1px solid #2d3f5a; }
-    .path { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; color: #e5e5e5; flex: 1; }
-    .desc { font-size: 12px; color: #555; }
-    .code-block { background: #111; border: 1px solid #222; border-radius: 12px; padding: 24px; margin-bottom: 56px; }
-    pre { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; line-height: 1.7; color: #a8b5c8; white-space: pre-wrap; }
-    .key { color: #60a5fa; } .str { color: #4ade80; } .num { color: #f59e0b; } .comment { color: #444; }
-    .footer { padding: 40px; border-top: 1px solid #1a1a1a; text-align: center; color: #333; font-size: 13px; }
-    .status-dot { display: inline-block; width: 8px; height: 8px; background: #4ade80; border-radius: 50%; margin-right: 6px; animation: pulse 2s infinite; }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-    @media (max-width: 600px) { .grid2, .status-grid { grid-template-columns: 1fr; } h1 { font-size: 36px; } }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #080808;
+      --surface: #0f0f0f;
+      --border: #1c1c1c;
+      --border-bright: #2a2a2a;
+      --text: #e8e8e8;
+      --muted: #555;
+      --dim: #333;
+      --accent: #e8ff47;
+      --accent-dim: rgba(232,255,71,0.08);
+      --green: #4ade80;
+      --red: #f87171;
+      --yellow: #fbbf24;
+      --mono: 'IBM Plex Mono', monospace;
+      --sans: 'Syne', sans-serif;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+    .wrap { max-width: 860px; margin: 0 auto; padding: 0 32px; }
+
+    /* Nav */
+    nav {
+      border-bottom: 1px solid var(--border);
+      padding: 20px 0;
+    }
+    nav .inner { display: flex; align-items: center; justify-content: space-between; }
+    .wordmark { font-size: 15px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text); }
+    .nav-status { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+    .pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse 2s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    /* Hero */
+    .hero { padding: 80px 0 64px; border-bottom: 1px solid var(--border); }
+    .version-tag {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      background: var(--accent-dim);
+      border: 1px solid rgba(232,255,71,0.2);
+      padding: 4px 10px;
+      border-radius: 2px;
+      margin-bottom: 28px;
+    }
+    h1 {
+      font-size: clamp(42px, 6vw, 68px);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.0;
+      margin-bottom: 20px;
+      color: var(--text);
+    }
+    h1 span { color: var(--accent); }
+    .hero-sub {
+      font-size: 17px;
+      color: var(--muted);
+      max-width: 520px;
+      line-height: 1.7;
+      margin-bottom: 40px;
+      font-family: var(--mono);
+      font-weight: 400;
+    }
+    .hero-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+    .btn {
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      padding: 12px 20px;
+      border-radius: 2px;
+      border: 1px solid;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+      transition: all 0.15s;
+    }
+    .btn-primary { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 600; }
+    .btn-primary:hover { background: #d4eb00; }
+    .btn-ghost { background: transparent; color: var(--muted); border-color: var(--border-bright); }
+    .btn-ghost:hover { color: var(--text); border-color: var(--dim); }
+
+    /* Sections */
+    section { padding: 56px 0; border-bottom: 1px solid var(--border); }
+    .section-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--dim);
+      margin-bottom: 32px;
+    }
+
+    /* Status grid */
+    .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border: 1px solid var(--border); }
+    .status-row { background: var(--surface); padding: 14px 18px; display: flex; align-items: center; gap: 12px; font-family: var(--mono); font-size: 12px; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .dot-green { background: var(--green); }
+    .dot-yellow { background: var(--yellow); }
+    .dot-red { background: var(--red); }
+    .status-name { color: var(--text); flex: 1; }
+    .status-badge { font-size: 10px; color: var(--muted); }
+
+    /* Endpoints */
+    .endpoints { display: grid; gap: 1px; background: var(--border); border: 1px solid var(--border); }
+    .endpoint { background: var(--surface); padding: 16px 20px; display: flex; align-items: center; gap: 16px; }
+    .method { font-family: var(--mono); font-size: 10px; font-weight: 500; padding: 3px 8px; border-radius: 2px; letter-spacing: 0.08em; min-width: 42px; text-align: center; }
+    .method-post { background: rgba(74,222,128,0.1); color: var(--green); border: 1px solid rgba(74,222,128,0.2); }
+    .method-get { background: rgba(96,165,250,0.1); color: #60a5fa; border: 1px solid rgba(96,165,250,0.2); }
+    .ep-path { font-family: var(--mono); font-size: 13px; color: var(--text); flex: 1; }
+    .ep-desc { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+    /* Code */
+    .code-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 2px; overflow: hidden; }
+    .code-bar { padding: 10px 18px; background: #0a0a0a; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+    .code-bar span { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.08em; }
+    pre { padding: 24px; font-family: var(--mono); font-size: 12.5px; line-height: 1.8; color: #8a9bb0; overflow-x: auto; }
+    .c-kw { color: #60a5fa; }
+    .c-str { color: var(--green); }
+    .c-num { color: var(--yellow); }
+    .c-cmt { color: #333; }
+    .c-key { color: #c4b5fd; }
+    .c-acc { color: var(--accent); }
+
+    /* Plans */
+    .plans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); }
+    .plan { background: var(--surface); padding: 28px 24px; }
+    .plan-name { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
+    .plan-price { font-size: 32px; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 4px; }
+    .plan-price sub { font-size: 14px; font-weight: 400; color: var(--muted); vertical-align: baseline; }
+    .plan-desc { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-bottom: 20px; line-height: 1.6; }
+    .plan-limit { font-family: var(--mono); font-size: 12px; color: var(--text); padding: 8px 0; border-top: 1px solid var(--border); }
+    .plan.featured { background: var(--accent-dim); border: 1px solid rgba(232,255,71,0.15); }
+    .plan.featured .plan-price { color: var(--accent); }
+
+    footer { padding: 40px 0; }
+    .footer-inner { display: flex; align-items: center; justify-content: space-between; }
+    .footer-copy { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+
+    @media (max-width: 640px) {
+      .status-grid, .plans { grid-template-columns: 1fr; }
+      h1 { font-size: 38px; }
+      .hero { padding: 48px 0 40px; }
+    }
   </style>
 </head>
 <body>
-  <div class="hero">
-    <div class="badge"><span class="status-dot"></span>API Running · v0.1.0-alpha</div>
-    <h1>Uncover API</h1>
-    <p class="subtitle">Find real problems people talk about on Reddit and X, analyzed by AI. Send a topic, get structured pain points, trends, and insights back.</p>
+  <nav>
+    <div class="wrap">
+      <div class="inner">
+        <span class="wordmark">Uncover</span>
+        <span class="nav-status"><span class="pulse"></span>API operational &bull; v1.0.0</span>
+      </div>
+    </div>
+  </nav>
 
-    <div class="section-title" style="margin-bottom:20px">What it does</div>
-    <div class="grid2">
-      <div class="card">
-        <div class="card-icon">🔍</div>
-        <h3>Social Search</h3>
-        <p>Searches Reddit and X (Twitter) for posts matching your query — complaints, questions, and discussions.</p>
-      </div>
-      <div class="card">
-        <div class="card-icon">🤖</div>
-        <h3>AI Analysis</h3>
-        <p>Runs results through an LLM (Groq / OpenRouter) to extract distinct problems, frequency, and sentiment.</p>
-      </div>
-      <div class="card">
-        <div class="card-icon">📊</div>
-        <h3>Structured Output</h3>
-        <p>Returns problems ranked by frequency, a summary paragraph, and key themes — ready to use in your code.</p>
-      </div>
-      <div class="card">
-        <div class="card-icon">🔑</div>
-        <h3>API Key Auth</h3>
-        <p>Sign up to get a <code style="background:#1a1a1a;padding:2px 6px;border-radius:4px;font-size:12px">sk_live_</code> key. Pass it as a Bearer token on every request.</p>
+  <div class="wrap">
+    <div class="hero">
+      <div class="version-tag">v1.0.0 &mdash; Production</div>
+      <h1>Surface real<br>problems from<br><span>social data.</span></h1>
+      <p class="hero-sub">
+        Query Reddit, X, and HackerNews.<br>
+        Get structured pain points, trends, and AI analysis back.
+      </p>
+      <div class="hero-actions">
+        <a href="/api/auth/signup" class="btn btn-primary">Get API Key</a>
+        <a href="#endpoints" class="btn btn-ghost">View Endpoints</a>
       </div>
     </div>
 
-    <div class="section-title" style="margin-bottom:14px">Current status</div>
-    <div class="status-grid" style="margin-bottom:56px">
-      <div class="status-item"><span class="dot green"></span>Auth &amp; API keys<span class="status-label">Working</span></div>
-      <div class="status-item"><span class="dot green"></span>Database storage<span class="status-label">Working</span></div>
-      <div class="status-item"><span class="dot yellow"></span>AI analysis<span class="status-label">Needs AI key</span></div>
-      <div class="status-item"><span class="dot yellow"></span>Reddit scraping<span class="status-label">Mock data (alpha)</span></div>
-      <div class="status-item"><span class="dot yellow"></span>X / Twitter<span class="status-label">Mock data (alpha)</span></div>
-      <div class="status-item"><span class="dot red"></span>Billing / Stripe<span class="status-label">Coming soon</span></div>
-    </div>
+    <section>
+      <div class="section-label">System Status</div>
+      <div class="status-grid">
+        <div class="status-row"><span class="dot dot-green"></span><span class="status-name">Auth &amp; API keys</span><span class="status-badge">Operational</span></div>
+        <div class="status-row"><span class="dot dot-green"></span><span class="status-name">Database</span><span class="status-badge">Operational</span></div>
+        <div class="status-row"><span class="dot dot-green"></span><span class="status-name">Reddit scraping</span><span class="status-badge">Operational</span></div>
+        <div class="status-row"><span class="dot dot-yellow"></span><span class="status-name">X / Twitter</span><span class="status-badge">Via Nitter</span></div>
+        <div class="status-row"><span class="dot dot-green"></span><span class="status-name">HackerNews</span><span class="status-badge">Operational</span></div>
+        <div class="status-row"><span class="dot dot-green"></span><span class="status-name">Stripe billing</span><span class="status-badge">Operational</span></div>
+        <div class="status-row"><span class="dot dot-green"></span><span class="status-name">AI analysis</span><span class="status-badge">Operational</span></div>
+        <div class="status-row"><span class="dot dot-green"></span><span class="status-name">Robots.txt compliance</span><span class="status-badge">Enforced</span></div>
+      </div>
+    </section>
 
-    <div class="section-title">Endpoints</div>
-    <div class="endpoints">
-      <div class="endpoint">
-        <span class="method post">POST</span>
-        <span class="path">/api/auth/signup</span>
-        <span class="desc">Create account + get API key</span>
+    <section id="endpoints">
+      <div class="section-label">Endpoints</div>
+      <div class="endpoints">
+        <div class="endpoint"><span class="method method-post">POST</span><span class="ep-path">/api/auth/signup</span><span class="ep-desc">Create account &amp; get API key</span></div>
+        <div class="endpoint"><span class="method method-post">POST</span><span class="ep-path">/api/auth/signin</span><span class="ep-desc">Sign in, retrieve keys</span></div>
+        <div class="endpoint"><span class="method method-post">POST</span><span class="ep-path">/api/search</span><span class="ep-desc">Submit search — Bearer token required</span></div>
+        <div class="endpoint"><span class="method method-get">GET</span><span class="ep-path">/api/search/:id</span><span class="ep-desc">Retrieve previous results</span></div>
+        <div class="endpoint"><span class="method method-get">GET</span><span class="ep-path">/api/billing/status</span><span class="ep-desc">Current plan &amp; usage</span></div>
+        <div class="endpoint"><span class="method method-post">POST</span><span class="ep-path">/api/billing/checkout</span><span class="ep-desc">Create Stripe checkout session</span></div>
+        <div class="endpoint"><span class="method method-post">POST</span><span class="ep-path">/api/billing/portal</span><span class="ep-desc">Customer billing portal</span></div>
+        <div class="endpoint"><span class="method method-get">GET</span><span class="ep-path">/health</span><span class="ep-desc">Health check</span></div>
       </div>
-      <div class="endpoint">
-        <span class="method post">POST</span>
-        <span class="path">/api/auth/signin</span>
-        <span class="desc">Sign in, retrieve existing keys</span>
-      </div>
-      <div class="endpoint">
-        <span class="method post">POST</span>
-        <span class="path">/api/search</span>
-        <span class="desc">Submit search — requires Bearer token</span>
-      </div>
-      <div class="endpoint">
-        <span class="method get">GET</span>
-        <span class="path">/api/search/:id</span>
-        <span class="desc">Retrieve results of a previous search</span>
-      </div>
-      <div class="endpoint">
-        <span class="method get">GET</span>
-        <span class="path">/health</span>
-        <span class="desc">Health check</span>
-      </div>
-    </div>
+    </section>
 
-    <div class="section-title">Example</div>
-    <div class="code-block"><pre><span class="comment">// 1. Sign up to get a key</span>
-<span class="key">const</span> { apiKey } = <span class="key">await</span> fetch(<span class="str">'/api/auth/signup'</span>, {
-  method: <span class="str">'POST'</span>,
-  body: JSON.stringify({ email, password })
-}).then(r => r.json());
+    <section>
+      <div class="section-label">Quick Start</div>
+      <div class="code-wrap">
+        <div class="code-bar"><span>bash &mdash; uncover CLI</span></div>
+        <pre><span class="c-cmt"># Install the CLI</span>
+<span class="c-acc">npm install -g @uncover/cli</span>
 
-<span class="comment">// 2. Search for problems</span>
-<span class="key">const</span> results = <span class="key">await</span> fetch(<span class="str">'/api/search'</span>, {
-  method: <span class="str">'POST'</span>,
-  headers: { Authorization: <span class="str">\`Bearer \${apiKey.key}\`</span> },
+<span class="c-cmt"># Authenticate</span>
+<span class="c-acc">uncover login</span>
+
+<span class="c-cmt"># Run a search</span>
+<span class="c-acc">uncover scrape "password manager frustrations" --sources reddit,hackernews</span>
+
+<span class="c-cmt"># Exclude noise</span>
+<span class="c-acc">uncover scrape "CRM software problems" \
+  --exclude-keywords spam,ad,promoted \
+  --min-upvotes 10 \
+  --max-age 720</span>
+
+<span class="c-cmt"># Check usage</span>
+<span class="c-acc">uncover status</span></pre>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-label">API Example</div>
+      <div class="code-wrap">
+        <div class="code-bar"><span>typescript</span></div>
+        <pre><span class="c-cmt">// Search with exclusion filters</span>
+<span class="c-kw">const</span> res = <span class="c-kw">await</span> fetch(<span class="c-str">'/api/search'</span>, {
+  method: <span class="c-str">'POST'</span>,
+  headers: { Authorization: <span class="c-str">\`Bearer \${apiKey}\`</span> },
   body: JSON.stringify({
-    query: <span class="str">'password manager frustrations'</span>,
-    sources: [<span class="str">'reddit'</span>],
-    limit: <span class="num">20</span>
+    query: <span class="c-str">'password manager frustrations'</span>,
+    sources: [<span class="c-str">'reddit'</span>, <span class="c-str">'hackernews'</span>],
+    limit: <span class="c-num">20</span>,
+    options: {
+      excludeSubreddits: [<span class="c-str">'AskReddit'</span>, <span class="c-str">'memes'</span>],
+      excludeKeywords: [<span class="c-str">'sponsored'</span>, <span class="c-str">'ad'</span>],
+      minUpvotes: <span class="c-num">5</span>,
+      maxAgeHours: <span class="c-num">720</span>  <span class="c-cmt">// last 30 days</span>
+    }
   })
-}).then(r => r.json());
+});
 
-<span class="comment">// 3. Use the output</span>
-results.problems   <span class="comment">// [{ text, frequency, sentiment }]</span>
-results.summary    <span class="comment">// "Most users struggle with..."</span>
-results.trends     <span class="comment">// ["pricing", "onboarding", "mobile"]</span></pre></div>
+<span class="c-kw">const</span> { problems, summary, trends } = <span class="c-kw">await</span> res.json();
+<span class="c-cmt">// problems: [{ text, frequency, sentiment }]</span>
+<span class="c-cmt">// trends:   ["pricing", "mobile UX", "export"]</span>
+<span class="c-cmt">// summary:  "Most users struggle with..."</span></pre>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-label">Pricing</div>
+      <div class="plans">
+        <div class="plan">
+          <div class="plan-name">Free</div>
+          <div class="plan-price">$0</div>
+          <div class="plan-desc">For exploration and prototyping.</div>
+          <div class="plan-limit">10 searches / month</div>
+        </div>
+        <div class="plan featured">
+          <div class="plan-name">Pro</div>
+          <div class="plan-price">$29<sub>/mo</sub></div>
+          <div class="plan-desc">For teams building products.</div>
+          <div class="plan-limit">500 searches / month</div>
+        </div>
+        <div class="plan">
+          <div class="plan-name">Enterprise</div>
+          <div class="plan-price">$199<sub>/mo</sub></div>
+          <div class="plan-desc">For high-volume research.</div>
+          <div class="plan-limit">10,000 searches / month</div>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <div class="footer-inner">
+        <span class="footer-copy">Uncover &mdash; v1.0.0</span>
+        <span class="footer-copy">Built with Node.js + Prisma</span>
+      </div>
+    </footer>
   </div>
-  <div class="footer">Uncover · v0.1.0-alpha · Built with Node.js + Groq / OpenRouter</div>
 </body>
 </html>`);
 });
 
-// Health check
-app.get("/health", (_req, res) => {
-  res.json({ status: "ok" });
-});
-
-// Public routes (no auth required)
+// Public routes
 app.use("/api/auth", authRoutes);
+app.use("/api/billing", stripeRoutes);
 
-// Protected routes (require API key)
+// Protected routes
 app.use("/api/search", apiKeyAuth, searchRoutes);
 
-// 404 handler
-app.use((_req, res) => {
-  res.status(404).json({ error: "Not found" });
-});
+// 404
+app.use((_req, res) => res.status(404).json({ error: "Not found" }));
 
-// Start server
 app.listen(PORT, () => {
   console.log(`Uncover API listening on port ${PORT}`);
-  console.log("Environment:", process.env.NODE_ENV || "development");
+  console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
 });

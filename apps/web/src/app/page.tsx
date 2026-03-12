@@ -2,208 +2,170 @@
 
 import { useState } from "react";
 
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+
+const styles: Record<string, React.CSSProperties> = {
+  nav: { borderBottom: "1px solid #1c1c1c", padding: "20px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" },
+  wordmark: { fontWeight: 700, fontSize: 14, letterSpacing: "0.1em", textTransform: "uppercase" as const },
+  navStatus: { fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#555", display: "flex", alignItems: "center", gap: 8 },
+  pulse: { width: 6, height: 6, borderRadius: "50%", background: "#4ade80" },
+  main: { maxWidth: 720, margin: "0 auto", padding: "64px 32px" },
+  hero: { marginBottom: 56 },
+  tag: { display: "inline-block", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase" as const, color: "#e8ff47", background: "rgba(232,255,71,0.07)", border: "1px solid rgba(232,255,71,0.2)", padding: "4px 10px", marginBottom: 24 },
+  h1: { fontSize: "clamp(36px, 5vw, 56px)", fontWeight: 800, letterSpacing: "-0.03em", lineHeight: 1.05, marginBottom: 16, color: "#e8e8e8" },
+  h1accent: { color: "#e8ff47" },
+  sub: { fontFamily: "'IBM Plex Mono', monospace", fontSize: 14, color: "#555", lineHeight: 1.8 },
+  card: { background: "#0f0f0f", border: "1px solid #1c1c1c", padding: "28px 32px", marginBottom: 2 },
+  label: { fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.15em", textTransform: "uppercase" as const, color: "#333", marginBottom: 20, display: "block" },
+  tabs: { display: "flex", gap: 1, marginBottom: 24 },
+  tab: { fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase" as const, padding: "10px 18px", border: "none", cursor: "pointer", transition: "all 0.1s" },
+  tabActive: { background: "#e8ff47", color: "#000", fontWeight: 600 },
+  tabInactive: { background: "#0f0f0f", color: "#555", border: "1px solid #1c1c1c" },
+  input: { width: "100%", background: "#080808", border: "1px solid #1c1c1c", color: "#e8e8e8", fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, padding: "12px 14px", outline: "none", boxSizing: "border-box" as const, marginBottom: 10 },
+  btn: { width: "100%", background: "#e8ff47", color: "#000", border: "none", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase" as const, fontWeight: 600, padding: "14px", cursor: "pointer", marginTop: 4 },
+  msgOk: { marginTop: 16, padding: "14px 18px", background: "rgba(74,222,128,0.05)", border: "1px solid rgba(74,222,128,0.2)", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: "#4ade80", lineHeight: 1.7 },
+  msgErr: { marginTop: 16, padding: "14px 18px", background: "rgba(248,113,113,0.05)", border: "1px solid rgba(248,113,113,0.2)", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: "#f87171" },
+  keyBox: { marginTop: 16, padding: "16px", background: "#080808", border: "1px solid rgba(232,255,71,0.2)" },
+  keyLabel: { fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase" as const, color: "#555", marginBottom: 8, display: "block" },
+  keyValue: { fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: "#e8ff47", wordBreak: "break-all" as const, lineHeight: 1.6 },
+  docsSection: { marginTop: 2 },
+  endpointRow: { background: "#0f0f0f", border: "1px solid #1c1c1c", borderTop: "none", padding: "14px 20px", display: "flex", alignItems: "center", gap: 14, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 },
+  methodPost: { background: "rgba(74,222,128,0.08)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.2)", padding: "2px 8px", fontSize: 10, letterSpacing: "0.08em", minWidth: 38, textAlign: "center" as const },
+  methodGet: { background: "rgba(96,165,250,0.08)", color: "#60a5fa", border: "1px solid rgba(96,165,250,0.2)", padding: "2px 8px", fontSize: 10, letterSpacing: "0.08em", minWidth: 38, textAlign: "center" as const },
+  epPath: { color: "#e8e8e8", flex: 1 },
+  epDesc: { color: "#333", fontSize: 11 },
+  footer: { borderTop: "1px solid #1c1c1c", padding: "32px 32px", marginTop: 64, display: "flex", justifyContent: "space-between", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#333" },
+};
+
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<"login" | "signup">("login");
+  const [tab, setTab] = useState<"signin" | "signup">("signup");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
-  const [message, setMessage] = useState("");
+  const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [apiKey, setApiKey] = useState("");
 
-  const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async () => {
+    setMsg(null);
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/auth/signup`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password, name }),
-        }
-      );
+      const endpoint = tab === "signup" ? "/api/auth/signup" : "/api/auth/signin";
+      const body = tab === "signup" ? { email, password, name } : { email, password };
+      const res = await fetch(`${API}${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { setMsg({ type: "err", text: data.error || "Request failed" }); return; }
 
-      const data = await response.json();
-      if (!response.ok) {
-        setMessage(`Error: ${data.error}`);
-        return;
+      if (tab === "signup") {
+        setApiKey(data.apiKey.key);
+        setMsg({ type: "ok", text: "Account created. Save your API key — it will not be shown again." });
+      } else {
+        setMsg({ type: "ok", text: `Signed in. You have ${data.apiKeys?.length ?? 0} API key(s) on this account.` });
       }
-
-      setApiKey(data.apiKey.key);
-      setMessage(
-        `✓ Account created! Your API key is: ${data.apiKey.key}`
-      );
-      setEmail("");
-      setPassword("");
-      setName("");
-    } catch (error) {
-      setMessage(`Error: ${error}`);
-    }
-  };
-
-  const handleSignin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/auth/signin`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password }),
-        }
-      );
-
-      const data = await response.json();
-      if (!response.ok) {
-        setMessage(`Error: ${data.error}`);
-        return;
-      }
-
-      setMessage(`✓ Signed in! API Keys: ${data.apiKeys.map((k: any) => k.name).join(", ")}`);
-      setEmail("");
-      setPassword("");
-    } catch (error) {
-      setMessage(`Error: ${error}`);
+      setEmail(""); setPassword(""); setName("");
+    } catch {
+      setMsg({ type: "err", text: "Network error — is the API running?" });
     }
   };
 
   return (
-    <main style={{ maxWidth: "600px", margin: "0 auto", padding: "2rem" }}>
-      <div style={{ marginBottom: "3rem" }}>
-        <h2>Uncover API</h2>
-        <p>
-          Discover real problems people mention on Reddit and Twitter using AI
-          analysis.
-        </p>
-      </div>
+    <>
+      <nav style={styles.nav}>
+        <span style={styles.wordmark}>Uncover</span>
+        <span style={styles.navStatus}>
+          <span style={styles.pulse} />
+          API operational
+        </span>
+      </nav>
 
-      <div style={{ marginBottom: "2rem" }}>
-        <div style={{ display: "flex", gap: "1rem", marginBottom: "1rem" }}>
-          <button
-            onClick={() => setActiveTab("login")}
-            style={{
-              padding: "0.5rem 1rem",
-              backgroundColor: activeTab === "login" ? "#000" : "#eee",
-              color: activeTab === "login" ? "#fff" : "#000",
-              border: "none",
-              cursor: "pointer",
-              borderRadius: "4px",
-            }}
-          >
-            Sign In
-          </button>
-          <button
-            onClick={() => setActiveTab("signup")}
-            style={{
-              padding: "0.5rem 1rem",
-              backgroundColor: activeTab === "signup" ? "#000" : "#eee",
-              color: activeTab === "signup" ? "#fff" : "#000",
-              border: "none",
-              cursor: "pointer",
-              borderRadius: "4px",
-            }}
-          >
-            Sign Up
-          </button>
-        </div>
-
-        <form
-          onSubmit={activeTab === "login" ? handleSignin : handleSignup}
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "1rem",
-          }}
-        >
-          {activeTab === "signup" && (
-            <input
-              type="text"
-              placeholder="Name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              style={{
-                padding: "0.75rem",
-                border: "1px solid #ddd",
-                borderRadius: "4px",
-              }}
-            />
-          )}
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            style={{
-              padding: "0.75rem",
-              border: "1px solid #ddd",
-              borderRadius: "4px",
-            }}
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            style={{
-              padding: "0.75rem",
-              border: "1px solid #ddd",
-              borderRadius: "4px",
-            }}
-          />
-          <button
-            type="submit"
-            style={{
-              padding: "0.75rem",
-              backgroundColor: "#000",
-              color: "#fff",
-              border: "none",
-              borderRadius: "4px",
-              cursor: "pointer",
-              fontSize: "1rem",
-            }}
-          >
-            {activeTab === "login" ? "Sign In" : "Sign Up"}
-          </button>
-        </form>
-
-        {message && (
-          <div
-            style={{
-              marginTop: "1rem",
-              padding: "1rem",
-              backgroundColor: message.startsWith("✓") ? "#f0f9ff" : "#fef2f2",
-              border: `1px solid ${message.startsWith("✓") ? "#0ea5e9" : "#ef4444"}`,
-              borderRadius: "4px",
-              wordBreak: "break-all",
-            }}
-          >
-            {message}
-          </div>
-        )}
-      </div>
-
-      {apiKey && (
-        <div style={{ marginTop: "2rem", padding: "1rem", backgroundColor: "#f0fdf4", border: "1px solid #22c55e", borderRadius: "4px" }}>
-          <h3>Next Steps</h3>
-          <p>Use this API key to make requests:</p>
-          <code style={{
-            display: "block",
-            padding: "0.5rem",
-            backgroundColor: "#fff",
-            border: "1px solid #ddd",
-            borderRadius: "4px",
-            marginBottom: "1rem",
-            overflowX: "auto"
-          }}>
-            {apiKey}
-          </code>
-          <p>
-            Docs: Check the API documentation to learn how to use the search
-            endpoint and NPM SDK.
+      <main style={styles.main}>
+        <div style={styles.hero}>
+          <div style={styles.tag}>v1.0.0 — Production</div>
+          <h1 style={styles.h1}>
+            Surface real problems<br />
+            from <span style={styles.h1accent}>social data.</span>
+          </h1>
+          <p style={styles.sub}>
+            Query Reddit, X, and HackerNews.<br />
+            Receive structured pain points, trends, and AI analysis.
           </p>
         </div>
-      )}
-    </main>
+
+        {/* Auth Card */}
+        <div style={styles.card}>
+          <span style={styles.label}>Get Started</span>
+          <div style={styles.tabs}>
+            <button style={{ ...styles.tab, ...(tab === "signup" ? styles.tabActive : styles.tabInactive) }} onClick={() => setTab("signup")}>
+              Sign Up
+            </button>
+            <button style={{ ...styles.tab, ...(tab === "signin" ? styles.tabActive : styles.tabInactive) }} onClick={() => setTab("signin")}>
+              Sign In
+            </button>
+          </div>
+
+          {tab === "signup" && (
+            <input style={styles.input} type="text" placeholder="Name (optional)" value={name} onChange={e => setName(e.target.value)} />
+          )}
+          <input style={styles.input} type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} />
+          <input style={styles.input} type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} />
+          <button style={styles.btn} onClick={handleSubmit}>
+            {tab === "signup" ? "Create Account" : "Sign In"}
+          </button>
+
+          {msg && (
+            <div style={msg.type === "ok" ? styles.msgOk : styles.msgErr}>
+              {msg.text}
+            </div>
+          )}
+
+          {apiKey && (
+            <div style={styles.keyBox}>
+              <span style={styles.keyLabel}>Your API Key — save this now</span>
+              <div style={styles.keyValue}>{apiKey}</div>
+            </div>
+          )}
+        </div>
+
+        {/* Endpoints */}
+        <div style={{ ...styles.card, marginTop: 40 }}>
+          <span style={styles.label}>Endpoints</span>
+        </div>
+        <div style={styles.docsSection}>
+          {[
+            { method: "POST", path: "/api/auth/signup", desc: "Create account" },
+            { method: "POST", path: "/api/auth/signin", desc: "Sign in" },
+            { method: "POST", path: "/api/search", desc: "Submit search — Bearer token required" },
+            { method: "GET", path: "/api/search/:id", desc: "Get results" },
+            { method: "GET", path: "/api/billing/status", desc: "Plan & usage" },
+            { method: "POST", path: "/api/billing/checkout", desc: "Upgrade plan" },
+            { method: "POST", path: "/api/billing/portal", desc: "Manage subscription" },
+          ].map((ep) => (
+            <div key={ep.path} style={styles.endpointRow}>
+              <span style={ep.method === "POST" ? styles.methodPost : styles.methodGet}>{ep.method}</span>
+              <span style={styles.epPath}>{ep.path}</span>
+              <span style={styles.epDesc}>{ep.desc}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* CLI section */}
+        <div style={{ ...styles.card, marginTop: 40 }}>
+          <span style={styles.label}>CLI</span>
+          <pre style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: "#555", lineHeight: 1.9, margin: 0 }}>
+            <span style={{ color: "#e8ff47" }}>npm install -g @uncover/cli{"\n"}</span>
+            <span style={{ color: "#e8e8e8" }}>uncover login{"\n"}</span>
+            <span style={{ color: "#e8e8e8" }}>uncover scrape &quot;password manager frustrations&quot; --sources reddit,hackernews{"\n"}</span>
+            <span style={{ color: "#e8e8e8" }}>uncover status</span>
+          </pre>
+        </div>
+      </main>
+
+      <footer style={styles.footer}>
+        <span>Uncover &mdash; v1.0.0</span>
+        <span>Surface real problems from social data</span>
+      </footer>
+    </>
   );
 }
