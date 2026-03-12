@@ -148,7 +148,7 @@ router.get("/:requestId", async (req: AuthenticatedRequest, res: Response) => {
         take: limit,
         select: { id: true, query: true, sources: true, status: true, cost: true, createdAt: true },
       });
-      return res.json({ requests: requests.map(r => ({ ...r, sources: JSON.parse(r.sources) })) });
+      return res.json({ requests: requests.map((r: any) => ({ ...r, sources: JSON.parse(r.sources) })) });
     }
 
     const request = await prisma.request.findUnique({

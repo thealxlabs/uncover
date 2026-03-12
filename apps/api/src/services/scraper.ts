@@ -3,7 +3,7 @@
  * Respects robots.txt, crawl delays, and per-domain rate limits.
  */
 
-import { checkRobotsAllowed, getCrawlDelay } from "../lib/robots.js";
+import { checkRobotsAllowed } from "../lib/robots.js";
 import { rateLimiter } from "../lib/rateLimiter.js";
 
 export interface ScrapedPost {
@@ -112,7 +112,7 @@ const NITTER_INSTANCES = [
 ];
 
 export async function scrapeTwitter(query: string, limit = 20, options: ScrapeOptions = {}): Promise<ScrapedPost[]> {
-  const { excludeKeywords = [], minUpvotes = 0 } = options;
+  const { excludeKeywords = [], minUpvotes: _minUpvotes = 0 } = options;
   const blockedKw = excludeKeywords.map(k => k.toLowerCase());
 
   for (const instance of NITTER_INSTANCES) {
@@ -126,7 +126,7 @@ export async function scrapeTwitter(query: string, limit = 20, options: ScrapeOp
       if (!response.ok) continue;
 
       const html = await response.text();
-      const posts = parseNitterHtml(html, instance, blockedKw, minUpvotes, options.maxAgeHours);
+      const posts = parseNitterHtml(html, instance, blockedKw, _minUpvotes, options.maxAgeHours);
       if (posts.length > 0) {
         console.log(`[scraper] Twitter: ${posts.length} tweets via ${instance}`);
         return posts.slice(0, limit);
@@ -138,7 +138,7 @@ export async function scrapeTwitter(query: string, limit = 20, options: ScrapeOp
   return [];
 }
 
-function parseNitterHtml(html: string, instance: string, blockedKw: string[], minUpvotes: number, maxAgeHours?: number): ScrapedPost[] {
+function parseNitterHtml(html: string, instance: string, blockedKw: string[], _minUpvotes: number, _maxAgeHours?: number): ScrapedPost[] {
   const posts: ScrapedPost[] = [];
   const tweetBlocks = html.match(/<div class="tweet-content[^>]*>([\s\S]*?)<\/div>/gi) ?? [];
 
