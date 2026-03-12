@@ -1,0 +1,85 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  name      String?
+  password  String    // hashed with bcrypt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  apiKeys   ApiKey[]
+  requests  Request[]
+  billing   Billing?
+}
+
+model ApiKey {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key       String    @unique  // hashed before storage
+  name      String    // user-friendly name like "My First Key"
+  rateLimit Int       @default(100)  // requests per month
+  createdAt DateTime  @default(now())
+  lastUsed  DateTime?
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+model Request {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  query     String    // search query like "password manager frustrations"
+  sources   String    // stored as JSON string: ["reddit","twitter"]
+  limit     Int       @default(20)
+  status    String    @default("pending")  // "pending", "processing", "completed", "failed"
+
+  result    Result?
+  cost      Float     @default(0)  // $ cost of this request
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Result {
+  id        String    @id @default(cuid())
+  requestId String    @unique
+  request   Request   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  rawData   String    // raw scraped data as JSON string
+  problems  String    // parsed array of {text, frequency, sentiment} as JSON string
+  summary   String    // Claude-generated summary
+  trends    String    // identified themes as JSON string: ["trend1","trend2"]
+
+  createdAt DateTime  @default(now())
+}
+
+model Billing {
+  id        String    @id @default(cuid())
+  userId    String    @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  stripeId  String?   // Stripe customer ID
+  plan      String    @default("free")  // "free", "pro", "enterprise"
+  monthlyUsage Int    @default(0)
+  monthlyLimit Int    @default(10)  // free tier: 10 requests per month
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
