@@ -1,0 +1,103 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  apiKeys      ApiKey[]
+  requests     Request[]
+  billing      Billing?
+  transactions CreditTransaction[]
+}
+
+model ApiKey {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key       String    @unique
+  name      String
+  createdAt DateTime  @default(now())
+  lastUsed  DateTime?
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+model Request {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  query   String
+  sources String
+  limit   Int    @default(20)
+  status  String @default("pending")
+  cost    Float  @default(0)
+
+  result Result?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Result {
+  id        String  @id @default(cuid())
+  requestId String  @unique
+  request   Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  rawData  String
+  problems String
+  summary  String
+  trends   String
+
+  createdAt DateTime @default(now())
+}
+
+model Billing {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  stripeId            String?
+  stripeSubId         String?
+  plan                String    @default("payg")
+  credits             Int       @default(0)
+  totalSpent          Float     @default(0)
+  totalSearches       Int       @default(0)
+  subCreditsPerCycle  Int?
+  subResetAt          DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CreditTransaction {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type        String
+  credits     Int
+  amountCents Int     @default(0)
+  description String
+  stripeId    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}

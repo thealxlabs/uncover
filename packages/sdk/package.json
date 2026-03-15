@@ -1,0 +1,27 @@
+{
+  "name": "@uncover/sdk",
+  "version": "0.1.2",
+  "description": "JavaScript SDK for Uncover API",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": ["uncover", "api", "sdk"],
+  "author": "Alexander Wondwossen <alex@thealxlabs.ca>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "typescript": "^5.3.3"
+  }
+}

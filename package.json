@@ -1,0 +1,18 @@
+{
+  "name": "uncover",
+  "version": "0.1.0",
+  "description": "API platform for discovering real problems from social media",
+  "private": true,
+  "scripts": {
+    "api": "npm run dev --workspace=apps/api",
+    "web": "npm run dev --workspace=apps/web",
+    "dev:all": "npm run api & npm run web"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
