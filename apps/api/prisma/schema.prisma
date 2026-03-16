@@ -1,103 +1,79 @@
-generator client {
-  provider = "prisma-client-js"
+import { Request, Response, NextFunction } from "express";
+import crypto from "crypto";
+import prisma from "../lib/db.js";
+import { checkRateLimit } from "./rateLimiter.js";
+
+export interface AuthenticatedRequest extends Request {
+  userId?: string;
+  apiKeyId?: string;
 }
 
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+function hashKey(key: string): string {
+  return crypto.createHash("sha256").update(key).digest("hex");
 }
 
-model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  password  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+export async function apiKeyAuth(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const authHeader = req.headers["authorization"];
 
-  apiKeys      ApiKey[]
-  requests     Request[]
-  billing      Billing?
-  transactions CreditTransaction[]
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Missing or invalid API key" });
+    }
+
+    const key = authHeader.substring(7);
+    if (!key) {
+      return res.status(401).json({ error: "Invalid API key format" });
+    }
+
+    const hashedKey = hashKey(key);
+
+    const apiKey = await prisma.apiKey.findUnique({
+      where: { key: hashedKey },
+      include: { user: true },
+    });
+
+    if (!apiKey) {
+      return res.status(401).json({ error: "Invalid API key" });
+    }
+
+    // Apply rate limiting — search endpoint gets stricter limit
+    const endpoint = req.path === "/" && req.method === "POST" ? "search" : "default";
+    const { allowed, remaining, resetAt } = checkRateLimit(apiKey.id, endpoint);
+
+    // Always set rate limit headers
+    res.setHeader("X-RateLimit-Limit", endpoint === "search" ? 10 : 60);
+    res.setHeader("X-RateLimit-Remaining", remaining);
+    res.setHeader("X-RateLimit-Reset", Math.ceil(resetAt / 1000));
+
+    if (!allowed) {
+      return res.status(429).json({
+        error: "Rate limit exceeded",
+        message: `Too many requests. Limit resets at ${new Date(resetAt).toISOString()}`,
+        resetAt,
+      });
+    }
+
+    await prisma.apiKey.update({
+      where: { id: apiKey.id },
+      data: { lastUsed: new Date() },
+    });
+
+    req.userId = apiKey.userId;
+    req.apiKeyId = apiKey.id;
+
+    next();
+  } catch (error) {
+    console.error("Auth error:", error);
+    res.status(500).json({ error: "Authentication failed" });
+  }
 }
 
-model ApiKey {
-  id        String    @id @default(cuid())
-  userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  key       String    @unique
-  name      String
-  createdAt DateTime  @default(now())
-  lastUsed  DateTime?
-  updatedAt DateTime  @updatedAt
-
-  @@index([userId])
+export function generateApiKey(): string {
+  return `sk_live_${crypto.randomBytes(32).toString("hex")}`;
 }
 
-model Request {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  query   String
-  sources String
-  limit   Int    @default(20)
-  status  String @default("pending")
-  cost    Float  @default(0)
-
-  result Result?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([userId])
-  @@index([status])
-}
-
-model Result {
-  id        String  @id @default(cuid())
-  requestId String  @unique
-  request   Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
-
-  rawData  String
-  problems String
-  summary  String
-  trends   String
-
-  createdAt DateTime @default(now())
-}
-
-model Billing {
-  id     String @id @default(cuid())
-  userId String @unique
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  stripeId            String?
-  stripeSubId         String?
-  plan                String    @default("payg")
-  credits             Int       @default(0)
-  totalSpent          Float     @default(0)
-  totalSearches       Int       @default(0)
-  subCreditsPerCycle  Int?
-  subResetAt          DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model CreditTransaction {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  type        String
-  credits     Int
-  amountCents Int     @default(0)
-  description String
-  stripeId    String?
-
-  createdAt DateTime @default(now())
-
-  @@index([userId])
-  @@index([createdAt])
-}
+export { hashKey };
