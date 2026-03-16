@@ -152,6 +152,8 @@ export default function Home() {
             <a href="#how" style={s.footerLink}>Docs</a>
             <a href="#pricing" style={s.footerLink}>Pricing</a>
             <a href="/login" style={s.footerLink}>Sign in</a>
+            <a href="/privacy" style={s.footerLink}>Privacy</a>
+            <a href="/terms" style={s.footerLink}>Terms</a>
             <a href="https://thealxlabs.ca" style={s.footerLink}>TheAlxLabs</a>
           </div>
           <span style={s.footerCopy}>© 2026 Uncover</span>
