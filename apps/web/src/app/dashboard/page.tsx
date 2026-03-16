@@ -20,24 +20,24 @@ interface Billing {
 interface ApiKey { id: string; name: string; createdAt: string; lastUsed: string | null; }
 interface HistoryItem { id: string; query: string; sources: string[]; status: string; cost: number; createdAt: string; }
 interface Problem { text: string; frequency: number; sentiment: string; }
-interface SearchResult { requestId: string; problems: Problem[]; summary: string; trends: string[]; postsAnalyzed: number; cost: number; credits: { remaining: number }; }
+interface SearchResult { requestId: string; problems: Problem[]; summary: string; trends: string[]; postsAnalyzed: number; cost: number; creditsUsed: number; credits: { remaining: number }; }
 type Tab = "overview" | "search" | "keys" | "billing";
 
 const C = {
-  bg: "#0a0a0a", surface: "#0f0f0f", surfaceHover: "#111",
+  bg: "#0a0a0a", surface: "#0f0f0f",
   border: "#1a1a1a", borderStrong: "#222",
   text: "#e0e0e0", textMuted: "#666", textDim: "#333",
   white: "#fff", black: "#000",
-  green: "#22c55e", red: "#ef4444", yellow: "#eab308", blue: "#3b82f6",
+  green: "#22c55e", red: "#ef4444", yellow: "#eab308",
   radius: 10, radiusSm: 6, radiusLg: 14,
 };
 
 const s: Record<string, React.CSSProperties> = {
-  shell: { minHeight: "100vh", display: "flex", flexDirection: "column", background: C.bg, fontFamily: "'Inter', system-ui, -apple-system, sans-serif", color: C.text },
-  nav: { borderBottom: `1px solid ${C.border}`, padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 52, flexShrink: 0, background: C.surface },
-  navLeft: { display: "flex", alignItems: "center", gap: 0 },
+  shell: { minHeight: "100vh", display: "flex", flexDirection: "column", background: C.bg, fontFamily: "'Inter', system-ui, sans-serif", color: C.text },
+  nav: { borderBottom: `1px solid ${C.border}`, padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 52, background: C.surface },
+  navLeft: { display: "flex", alignItems: "center" },
   wordmark: { fontSize: 15, fontWeight: 600, letterSpacing: "-0.02em", color: C.white, marginRight: 28 },
-  navTab: { fontSize: 13, padding: "0 14px", height: 52, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", borderBottom: "2px solid transparent", transition: "all 0.1s", letterSpacing: "-0.01em" },
+  navTab: { fontSize: 13, padding: "0 14px", height: 52, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", borderBottom: "2px solid transparent" },
   navTabActive: { color: C.white, borderBottomColor: C.white },
   navTabInactive: { color: C.textMuted },
   navRight: { display: "flex", alignItems: "center", gap: 16 },
@@ -66,6 +66,10 @@ const s: Record<string, React.CSSProperties> = {
   empty: { fontSize: 13, color: C.textMuted, padding: "32px 20px", textAlign: "center" as const, background: C.surface, border: `1px solid ${C.border}`, borderRadius: C.radiusLg },
   error: { fontSize: 13, color: C.red, background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)", borderRadius: C.radiusSm, padding: "10px 14px", marginBottom: 14 },
   success: { fontSize: 13, color: C.green, background: "rgba(34,197,94,0.06)", border: "1px solid rgba(34,197,94,0.15)", borderRadius: C.radiusSm, padding: "10px 14px", marginBottom: 14 },
+  segmented: { display: "flex", background: "#0c0c0c", border: `1px solid ${C.border}`, borderRadius: C.radiusSm, padding: 3, gap: 2, width: "fit-content", marginBottom: 18 },
+  segBtn: { fontSize: 12, padding: "6px 14px", border: "none", cursor: "pointer", borderRadius: 4 },
+  segActive: { background: "#1a1a1a", color: C.text, fontWeight: 500 },
+  segInactive: { background: "transparent", color: C.textMuted },
 };
 
 export default function Dashboard() {
@@ -133,9 +137,7 @@ function OverviewTab({ billing, history, setTab }: { billing: Billing | null; hi
         <div style={s.statCard}>
           <span style={s.statLabel}>Credits remaining</span>
           <div style={{ ...s.statValue, color: credits > 0 ? C.white : C.red }}>{credits}</div>
-          {credits === 0 && (
-            <button onClick={() => setTab("billing")} style={{ ...s.btn, ...s.btnPrimary, marginTop: 10, fontSize: 12 }}>Buy credits</button>
-          )}
+          {credits === 0 && <button onClick={() => setTab("billing")} style={{ ...s.btn, ...s.btnPrimary, marginTop: 10, fontSize: 12 }}>Buy credits</button>}
         </div>
         <div style={s.statCard}>
           <span style={s.statLabel}>Plan</span>
@@ -188,9 +190,11 @@ function OverviewTab({ billing, history, setTab }: { billing: Billing | null; hi
 }
 
 function SearchTab({ onSearchDone }: { onSearchDone: () => void }) {
+  const [mode, setMode] = useState<"social" | "custom">("social");
   const [query, setQuery] = useState("");
   const [sources, setSources] = useState<string[]>(["reddit"]);
   const [limit, setLimit] = useState(20);
+  const [urls, setUrls] = useState<string[]>([""]);
   const [excludeKw, setExcludeKw] = useState("");
   const [excludeSubs, setExcludeSubs] = useState("");
   const [minUpvotes, setMinUpvotes] = useState(0);
@@ -201,17 +205,32 @@ function SearchTab({ onSearchDone }: { onSearchDone: () => void }) {
 
   const toggleSrc = (src: string) => setSources(p => p.includes(src) ? p.filter(x => x !== src) : [...p, src]);
 
+  const addUrl = () => { if (urls.length < 5) setUrls([...urls, ""]); };
+  const updateUrl = (i: number, val: string) => { const u = [...urls]; u[i] = val; setUrls(u); };
+  const removeUrl = (i: number) => setUrls(urls.filter((_, idx) => idx !== i));
+
   const submit = async () => {
     if (!query.trim()) { setError("Enter a search query"); return; }
-    if (!sources.length) { setError("Select at least one source"); return; }
+    if (mode === "social" && !sources.length) { setError("Select at least one source"); return; }
+    if (mode === "custom") {
+      const validUrls = urls.filter(u => u.trim());
+      if (!validUrls.length) { setError("Enter at least one URL"); return; }
+    }
     setError(""); setLoading(true); setResult(null);
-    const opts: Record<string, unknown> = {};
-    if (excludeKw) opts.excludeKeywords = excludeKw.split(",").map(k => k.trim()).filter(Boolean);
-    if (excludeSubs) opts.excludeSubreddits = excludeSubs.split(",").map(s => s.trim()).filter(Boolean);
-    if (minUpvotes > 0) opts.minUpvotes = minUpvotes;
-    if (maxAge) opts.maxAgeHours = parseInt(maxAge, 10);
+
     try {
-      const data = await runSearch({ query, sources, limit, options: opts });
+      let body: Record<string, unknown>;
+      if (mode === "custom") {
+        body = { query, urls: urls.filter(u => u.trim()), limit };
+      } else {
+        const opts: Record<string, unknown> = {};
+        if (excludeKw) opts.excludeKeywords = excludeKw.split(",").map(k => k.trim()).filter(Boolean);
+        if (excludeSubs) opts.excludeSubreddits = excludeSubs.split(",").map(s => s.trim()).filter(Boolean);
+        if (minUpvotes > 0) opts.minUpvotes = minUpvotes;
+        if (maxAge) opts.maxAgeHours = parseInt(maxAge, 10);
+        body = { query, sources, limit, options: opts };
+      }
+      const data = await runSearch(body);
       setResult(data); onSearchDone();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Search failed");
@@ -223,60 +242,86 @@ function SearchTab({ onSearchDone }: { onSearchDone: () => void }) {
       <div style={{ ...s.card, marginBottom: 16 }}>
         <div style={{ ...s.sectionHead, marginBottom: 18 }}>
           <span style={s.sectionTitle}>New search</span>
-          <span style={{ fontSize: 12, color: C.textMuted }}>1 credit per search</span>
+          <span style={{ fontSize: 12, color: C.textMuted }}>
+            {mode === "custom" ? "2 credits per search" : "1 credit per search"}
+          </span>
         </div>
         {error && <div style={s.error}>{error}</div>}
 
+        {/* Mode toggle */}
+        <div style={s.segmented}>
+          <button style={{ ...s.segBtn, ...(mode === "social" ? s.segActive : s.segInactive) }} onClick={() => setMode("social")}>
+            Social sources
+          </button>
+          <button style={{ ...s.segBtn, ...(mode === "custom" ? s.segActive : s.segInactive) }} onClick={() => setMode("custom")}>
+            Custom URLs
+            <span style={{ fontSize: 10, color: "#e8ff47", marginLeft: 6, background: "rgba(232,255,71,0.1)", padding: "1px 5px", borderRadius: 3 }}>2 credits</span>
+          </button>
+        </div>
+
         <div style={s.row}>
-          <input style={{ ...s.input }} placeholder="e.g. password manager frustrations" value={query}
-            onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} />
-          <select style={{ ...s.select, width: 120 }} value={limit} onChange={e => setLimit(Number(e.target.value))}>
-            {[10, 20, 30, 50].map(n => <option key={n} value={n}>{n} posts</option>)}
-          </select>
+          <input style={s.input} placeholder={mode === "custom" ? "What are you analyzing? e.g. customer complaints" : '"CRM software frustrations"'}
+            value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} />
+          {mode === "social" && (
+            <select style={{ ...s.select, width: 120 }} value={limit} onChange={e => setLimit(Number(e.target.value))}>
+              {[10, 20, 30, 50].map(n => <option key={n} value={n}>{n} posts</option>)}
+            </select>
+          )}
         </div>
 
-        <div style={{ marginBottom: 16 }}>
-          <span style={{ ...s.statLabel, marginBottom: 8 }}>Sources</span>
-          <div style={{ display: "flex", gap: 20 }}>
-            {["reddit", "twitter", "hackernews"].map(src => (
-              <label key={src} style={{ fontSize: 13, color: C.textMuted, display: "flex", alignItems: "center", gap: 7, cursor: "pointer" }}>
-                <input type="checkbox" checked={sources.includes(src)} onChange={() => toggleSrc(src)} />
-                {src}
-              </label>
-            ))}
-          </div>
-        </div>
+        {mode === "social" && (
+          <>
+            <div style={{ marginBottom: 16 }}>
+              <span style={{ ...s.statLabel, marginBottom: 8 }}>Sources</span>
+              <div style={{ display: "flex", gap: 20 }}>
+                {["reddit", "twitter", "hackernews"].map(src => (
+                  <label key={src} style={{ fontSize: 13, color: C.textMuted, display: "flex", alignItems: "center", gap: 7, cursor: "pointer" }}>
+                    <input type="checkbox" checked={sources.includes(src)} onChange={() => toggleSrc(src)} />
+                    {src}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <details style={{ marginBottom: 18 }}>
+              <summary style={{ fontSize: 12, color: C.textMuted, cursor: "pointer", userSelect: "none" as const, marginBottom: 12 }}>Filters</summary>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, paddingTop: 10 }}>
+                <div><span style={{ ...s.statLabel, marginBottom: 5 }}>Exclude keywords</span><input style={s.input} placeholder="spam, ad" value={excludeKw} onChange={e => setExcludeKw(e.target.value)} /></div>
+                <div><span style={{ ...s.statLabel, marginBottom: 5 }}>Exclude subreddits</span><input style={s.input} placeholder="memes, AskReddit" value={excludeSubs} onChange={e => setExcludeSubs(e.target.value)} /></div>
+                <div><span style={{ ...s.statLabel, marginBottom: 5 }}>Min upvotes</span><input style={s.input} type="number" min={0} value={minUpvotes} onChange={e => setMinUpvotes(Number(e.target.value) || 0)} /></div>
+                <div><span style={{ ...s.statLabel, marginBottom: 5 }}>Max age (hours)</span><input style={s.input} type="number" placeholder="720 = 30 days" value={maxAge} onChange={e => setMaxAge(e.target.value)} /></div>
+              </div>
+            </details>
+          </>
+        )}
 
-        <details style={{ marginBottom: 18 }}>
-          <summary style={{ fontSize: 12, color: C.textMuted, cursor: "pointer", userSelect: "none" as const, marginBottom: 12 }}>
-            Filters
-          </summary>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, paddingTop: 10 }}>
-            <div>
-              <span style={{ ...s.statLabel, marginBottom: 5 }}>Exclude keywords</span>
-              <input style={s.input} placeholder="spam, ad" value={excludeKw} onChange={e => setExcludeKw(e.target.value)} />
+        {mode === "custom" && (
+          <div style={{ marginBottom: 18 }}>
+            <span style={{ ...s.statLabel, marginBottom: 10 }}>URLs to scrape <span style={{ color: C.textDim }}>(max 5)</span></span>
+            <div style={{ display: "flex", flexDirection: "column" as const, gap: 8 }}>
+              {urls.map((url, i) => (
+                <div key={i} style={{ display: "flex", gap: 8 }}>
+                  <input style={s.input} placeholder={`https://example.com/page`} value={url} onChange={e => updateUrl(i, e.target.value)} />
+                  {urls.length > 1 && (
+                    <button style={{ ...s.btn, ...s.btnDanger, padding: "9px 12px", flexShrink: 0 }} onClick={() => removeUrl(i)}>✕</button>
+                  )}
+                </div>
+              ))}
+              {urls.length < 5 && (
+                <button style={{ ...s.btn, ...s.btnGhost, fontSize: 12, width: "fit-content" }} onClick={addUrl}>+ Add URL</button>
+              )}
             </div>
-            <div>
-              <span style={{ ...s.statLabel, marginBottom: 5 }}>Exclude subreddits</span>
-              <input style={s.input} placeholder="memes, AskReddit" value={excludeSubs} onChange={e => setExcludeSubs(e.target.value)} />
-            </div>
-            <div>
-              <span style={{ ...s.statLabel, marginBottom: 5 }}>Min upvotes</span>
-              <input style={s.input} type="number" min={0} value={minUpvotes} onChange={e => setMinUpvotes(Number(e.target.value) || 0)} />
-            </div>
-            <div>
-              <span style={{ ...s.statLabel, marginBottom: 5 }}>Max age (hours)</span>
-              <input style={s.input} type="number" placeholder="720 = 30 days" value={maxAge} onChange={e => setMaxAge(e.target.value)} />
+            <div style={{ fontSize: 12, color: C.textDim, marginTop: 10, lineHeight: 1.7 }}>
+              Scrapes any public website. Respects robots.txt. Social platforms (Facebook, Instagram, LinkedIn) are blocked.
             </div>
           </div>
-        </details>
+        )}
 
         <button style={{ ...s.btn, ...s.btnPrimary, opacity: loading ? 0.7 : 1, minWidth: 120 }} onClick={submit} disabled={loading}>
           {loading ? "Searching..." : "Run search"}
         </button>
       </div>
 
-      {loading && <div style={s.empty}>Scraping {sources.join(", ")} and analyzing...</div>}
+      {loading && <div style={s.empty}>Scraping {mode === "custom" ? "custom URLs" : sources.join(", ")} and analyzing...</div>}
       {result && <SearchResults result={result} />}
     </div>
   );
@@ -286,8 +331,8 @@ function SearchResults({ result }: { result: SearchResult }) {
   return (
     <div style={s.card}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <span style={s.sectionTitle}>{result.problems?.length ?? 0} problems · {result.postsAnalyzed} posts analyzed</span>
-        <span style={{ fontSize: 12, color: C.textMuted }}>{result.credits?.remaining} credits remaining</span>
+        <span style={s.sectionTitle}>{result.problems?.length ?? 0} problems · {result.postsAnalyzed} posts · {result.creditsUsed} credit{result.creditsUsed > 1 ? "s" : ""} used</span>
+        <span style={{ fontSize: 12, color: C.textMuted }}>{result.credits?.remaining} remaining</span>
       </div>
       {result.summary && (
         <div style={{ fontSize: 13, color: C.textMuted, lineHeight: 1.75, marginBottom: 20, background: "#0c0c0c", border: `1px solid ${C.border}`, borderRadius: C.radiusSm, padding: "14px 16px" }}>
@@ -341,7 +386,7 @@ function KeysTab({ keys, onRefresh }: { keys: ApiKey[]; onRefresh: () => void })
       {error && <div style={s.error}>{error}</div>}
       {newKey && (
         <div style={s.success}>
-          Key created — save it now:<br />
+          Key created — save it now, it won&apos;t be shown again:<br />
           <span style={{ fontFamily: "monospace", fontSize: 12, wordBreak: "break-all" as const }}>{newKey}</span>
         </div>
       )}
@@ -352,7 +397,6 @@ function KeysTab({ keys, onRefresh }: { keys: ApiKey[]; onRefresh: () => void })
           Create key
         </button>
       </div>
-
       {keys.length === 0 ? <div style={s.empty}>No API keys yet.</div> : (
         <table style={s.table}>
           <thead><tr>
@@ -370,7 +414,6 @@ function KeysTab({ keys, onRefresh }: { keys: ApiKey[]; onRefresh: () => void })
           ))}</tbody>
         </table>
       )}
-
       <div style={{ ...s.card, marginTop: 24 }}>
         <span style={{ ...s.statLabel, display: "block", marginBottom: 10 }}>Usage example</span>
         <pre style={{ fontFamily: "monospace", fontSize: 12, color: C.textMuted, lineHeight: 1.8, margin: 0, overflowX: "auto" as const }}>
@@ -384,10 +427,13 @@ function KeysTab({ keys, onRefresh }: { keys: ApiKey[]; onRefresh: () => void })
   );
 }
 
-function BillingTab({ billing, onRefresh: _onRefresh }: { billing: Billing | null; onRefresh: () => void }) {
+function BillingTab({ billing, onRefresh }: { billing: Billing | null; onRefresh: () => void }) {
   const [loadingKey, setLoadingKey] = useState<string | null>(null);
-  const [billingTab, setBillingTab] = useState<"credits" | "subscription">("credits");
+  const [billingTab, setBillingTab] = useState<"credits" | "subscription" | "promo">("credits");
   const [error, setError] = useState("");
+  const [promoCode, setPromoCode] = useState("");
+  const [promoLoading, setPromoLoading] = useState(false);
+  const [promoSuccess, setPromoSuccess] = useState("");
 
   const buyPack = async (pack: string) => {
     setLoadingKey(pack); setError("");
@@ -415,6 +461,24 @@ function BillingTab({ billing, onRefresh: _onRefresh }: { billing: Billing | nul
     catch (err: unknown) { setError(err instanceof Error ? err.message : "Failed"); setLoadingKey(null); }
   };
 
+  const redeemPromo = async () => {
+    if (!promoCode.trim()) return;
+    setPromoLoading(true); setError(""); setPromoSuccess("");
+    try {
+      const res = await fetch(`${API}/api/billing/redeem`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("uncover_api_key")}` },
+        body: JSON.stringify({ code: promoCode.trim().toUpperCase() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setPromoSuccess(`${data.credits} credits added to your account!`);
+      setPromoCode("");
+      onRefresh();
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : "Invalid promo code"); }
+    finally { setPromoLoading(false); }
+  };
+
   return (
     <div>
       <div style={{ ...s.sectionHead, marginBottom: 20 }}>
@@ -427,6 +491,7 @@ function BillingTab({ billing, onRefresh: _onRefresh }: { billing: Billing | nul
       </div>
 
       {error && <div style={s.error}>{error}</div>}
+      {promoSuccess && <div style={s.success}>{promoSuccess}</div>}
 
       <div style={{ ...s.card, marginBottom: 20, display: "flex", gap: 40, flexWrap: "wrap" as const }}>
         <div>
@@ -439,18 +504,18 @@ function BillingTab({ billing, onRefresh: _onRefresh }: { billing: Billing | nul
         <div style={{ borderLeft: `1px solid ${C.border}`, paddingLeft: 40 }}>
           <span style={s.statLabel}>How credits work</span>
           <div style={{ fontSize: 13, color: C.textMuted, lineHeight: 2 }}>
-            1 credit = 1 search<br />
-            PAYG credits never expire<br />
-            Subscription credits added each cycle
+            1 credit = 1 social search<br />
+            2 credits = 1 custom URL search<br />
+            Credits never expire
           </div>
         </div>
       </div>
 
-      <div style={{ display: "flex", background: "#0c0c0c", border: `1px solid ${C.border}`, borderRadius: C.radiusSm, padding: 3, marginBottom: 16, gap: 2, width: "fit-content" }}>
-        {(["credits", "subscription"] as const).map(t => (
+      <div style={{ ...s.segmented, marginBottom: 16 }}>
+        {(["credits", "subscription", "promo"] as const).map(t => (
           <button key={t} onClick={() => setBillingTab(t)}
-            style={{ ...s.btn, padding: "7px 16px", fontSize: 13, ...(billingTab === t ? { background: "#1a1a1a", color: C.text } : { background: "transparent", color: C.textMuted }) }}>
-            {t === "credits" ? "Credit packs" : "Subscriptions"}
+            style={{ ...s.segBtn, ...(billingTab === t ? s.segActive : s.segInactive) }}>
+            {t === "credits" ? "Credit packs" : t === "subscription" ? "Subscriptions" : "Promo code"}
           </button>
         ))}
       </div>
@@ -496,6 +561,25 @@ function BillingTab({ billing, onRefresh: _onRefresh }: { billing: Billing | nul
             ))}
           </div>
           <div style={{ fontSize: 12, color: C.textDim }}>Credits added each billing cycle. Cancel anytime.</div>
+        </div>
+      )}
+
+      {billingTab === "promo" && (
+        <div style={s.card}>
+          <div style={{ fontSize: 14, fontWeight: 500, color: C.text, marginBottom: 6 }}>Redeem a promo code</div>
+          <div style={{ fontSize: 13, color: C.textMuted, marginBottom: 20, lineHeight: 1.6 }}>
+            Enter a promo code to add free credits to your account.
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input style={s.input} placeholder="PROMO-CODE" value={promoCode}
+              onChange={e => setPromoCode(e.target.value.toUpperCase())}
+              onKeyDown={e => e.key === "Enter" && redeemPromo()}
+            />
+            <button style={{ ...s.btn, ...s.btnPrimary, whiteSpace: "nowrap" as const, opacity: promoLoading ? 0.7 : 1 }}
+              onClick={redeemPromo} disabled={promoLoading}>
+              {promoLoading ? "..." : "Redeem"}
+            </button>
+          </div>
         </div>
       )}
 
