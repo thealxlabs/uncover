@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import crypto from "crypto";
 import prisma from "../lib/db.js";
+import { checkRateLimit } from "./rateLimiter.js";
 
 export interface AuthenticatedRequest extends Request {
   userId?: string;
@@ -37,6 +38,23 @@ export async function apiKeyAuth(
 
     if (!apiKey) {
       return res.status(401).json({ error: "Invalid API key" });
+    }
+
+    // Apply rate limiting — search endpoint gets stricter limit
+    const endpoint = req.path === "/" && req.method === "POST" ? "search" : "default";
+    const { allowed, remaining, resetAt } = checkRateLimit(apiKey.id, endpoint);
+
+    // Always set rate limit headers
+    res.setHeader("X-RateLimit-Limit", endpoint === "search" ? 10 : 60);
+    res.setHeader("X-RateLimit-Remaining", remaining);
+    res.setHeader("X-RateLimit-Reset", Math.ceil(resetAt / 1000));
+
+    if (!allowed) {
+      return res.status(429).json({
+        error: "Rate limit exceeded",
+        message: `Too many requests. Limit resets at ${new Date(resetAt).toISOString()}`,
+        resetAt,
+      });
     }
 
     await prisma.apiKey.update({
