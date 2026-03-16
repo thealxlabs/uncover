@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
